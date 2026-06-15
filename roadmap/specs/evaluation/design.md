@@ -13,7 +13,7 @@ description: Tapered evaluation on PeSTO tables with mobility, king safety, and 
 |---|---|---|
 | Foundation | Tapered eval on PeSTO tables | A proven, texel-tuned mg/eg set; smooth phase transition. |
 | Phase | Non-pawn material, 0–24 | The standard; cheap to compute per position. |
-| `is_endgame` | Retired | Tapering subsumes the frozen binary flag and its plumbing. |
+| `is_endgame` | Retired | Tapering subsumes the frozen binary flag and its callers. |
 | Terms | Mobility, king safety, pawn structure | The high-value positional signals beyond material. |
 | Verification | Symmetry + per-term units + per-term Elo | Each term is kept only if the harness shows it helps. |
 
@@ -36,7 +36,9 @@ The searcher applies the side-to-move sign, as today.
 
 **Game phase:** `phase = min(24, Σ piece_phase)`, with `knight = bishop = 1`,
 `rook = 2`, `queen = 4` over all non-pawn pieces (24 at the full set, 0 at bare
-kings).
+kings). Phase is recomputed per evaluated node — today's `is_endgame` is frozen at
+the search root — so the blend tracks the leaf, not the root. `game_phase` is a
+popcount, so the per-node cost is negligible.
 
 **PeSTO tables:** middlegame and endgame piece values and piece-square tables,
 transcribed from PeSTO. Tables are White-oriented; Black mirrors by rank.
@@ -53,12 +55,14 @@ transcribed from PeSTO. Tables are White-oriented; Black mirrors by rank.
 
 ## Retiring `is_endgame`
 
-Tapering replaces the binary flag, so it is removed across the seam:
+Tapering replaces the binary flag; remove it everywhere it appears:
 
 - `eval`: `value(board, is_endgame)` → `evaluate(board)`; drop `is_endgame` and the
   king-endgame table (PeSTO's eg king table covers it).
 - `movesort`: `evaluate_move_value` and the quiet sort drop `is_endgame` and order
-  quiets by the **middlegame** PST delta (`eval::mg_position_value`).
+  quiets by the **middlegame** PST delta (`eval::mg_position_value`). This drops
+  endgame PST awareness from quiet ordering — an efficiency tradeoff, not a
+  correctness one: ordering changes the node count, never the search result.
 - `search`: drop the `is_endgame` field and the frozen-root logic; call
   `evaluate(board)` directly.
 - `lib`: drop the `is_endgame` pyfunction; the `evaluate(fen)` pyfunction calls the
@@ -70,6 +74,8 @@ Tapering replaces the binary flag, so it is removed across the seam:
 
 - **Invariants:** the start position evaluates to 0 (AC-1.4); a color-mirrored
   position negates (AC-1.5); `game_phase` is 24 at the start and 0 for bare kings.
+  These re-run after every term wave — a term with a sign or symmetry bug breaks
+  them.
 - **Per term:** a crafted position isolates each term (a doubled/isolated/passed
   pawn, a cramped vs free piece, an exposed vs sheltered king) and asserts the sign.
 - **Tactics:** the three mate puzzles still resolve; the no-sacrifice puzzle may

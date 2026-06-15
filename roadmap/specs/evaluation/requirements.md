@@ -11,7 +11,7 @@ Replace the material-plus-piece-square evaluation with a tapered evaluation: a
 game phase blends a middlegame and an endgame score, built on PeSTO's tuned
 tables, then mobility, king safety, and pawn-structure terms. The binary
 `is_endgame` flag is retired. Each term's contribution is measured against the
-prior build with the strength harness, not assumed. Depends on iterative deepening
+prior build with the strength harness. Depends on iterative deepening
 and the strength harness (both on `main`).
 
 ## Story 1 — Tapered evaluation

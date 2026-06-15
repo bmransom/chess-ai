@@ -28,14 +28,16 @@ a flat term is dropped, not shipped.
 
 - **2.1 Mobility term.** Score knight/bishop/rook/queen available-square counts with
   mg/eg weights, reusing the attack tables. *Gate: AC-2.1–2.2 — a unit test shows the
-  freer side scores higher.*
+  freer side scores higher; AC-1.4–1.5 still hold (start evaluates to 0, a mirror
+  negates).*
 - **2.2 Measure mobility.** Match the candidate against the Wave 1 build; record the
   Elo delta; keep the term only if it helps. *Gate: AC-6.1.*
 
 ## Wave 3 — King safety
 
 - **3.1 King-safety term.** Score the pawn shield and the attackers on the king ring,
-  mg-weighted. *Gate: AC-3.1–3.2 — a unit test shows an exposed king scores worse.*
+  mg-weighted. *Gate: AC-3.1–3.2 — a unit test shows an exposed king scores worse;
+  AC-1.4–1.5 still hold.*
 - **3.2 Measure king safety.** Match against the Wave 2 build; record the Elo delta.
   *Gate: AC-6.1.*
 
@@ -43,7 +45,7 @@ a flat term is dropped, not shipped.
 
 - **4.1 Pawn-structure term.** Penalize doubled and isolated pawns; reward passed
   pawns, rank-scaled and larger in the endgame. *Gate: AC-4.1–4.2 — a unit test shows
-  a passed pawn and the doubled/isolated penalties.*
+  a passed pawn and the doubled/isolated penalties; AC-1.4–1.5 still hold.*
 - **4.2 Measure pawn structure.** Match against the Wave 3 build; record the Elo
   delta. *Gate: AC-6.1.*
 
@@ -53,5 +55,6 @@ a flat term is dropped, not shipped.
   Elo gain. *Gate: AC-6.1 — the cumulative delta is recorded in the PR.*
 - **5.2 Docs & board.** Add the new terms to `knowledge/glossary.md` with provenance,
   retire the `Endgame` entry, update the Board entity-model line (`value()`/`is_endgame`
-  → `evaluate()`), note the eval in `AGENTS.md`, and move the Epic 4 cards to Done.
+  → `evaluate()`), register the `Score { mg, eg }` type in the entity model, note the
+  eval in `AGENTS.md`, and move the Epic 4 cards to Done.
   *Gate: `python3 scripts/knowledge.py check` clean; recorded gate PASS.*
