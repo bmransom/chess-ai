@@ -8,7 +8,10 @@ use crate::board::Board;
 use crate::chess_move::Move;
 use crate::eval;
 use crate::movegen::generate_legal;
-use crate::movesort::{get_moves_to_dequiet, in_check, prioritize_legal_moves};
+use crate::movesort::{
+    get_moves_to_dequiet, history_index, in_check, prioritize_legal_moves, OrderingContext,
+    HISTORY_SIZE,
+};
 use crate::tt::{Flag, HashEntry, TranspositionTable};
 use crate::types::Color;
 
@@ -28,6 +31,8 @@ const SUDDEN_DEATH_MOVES: u64 = 30;
 const MAX_BUDGET_PERCENT: u64 = 40;
 /// PV table / ply array bound.
 const MAX_SEARCH_PLY: usize = 128;
+/// Clamp history scores to keep them bounded and ordering stable.
+const HISTORY_MAX: i32 = 1 << 24;
 
 /// The limits for one search. All times are milliseconds.
 #[derive(Clone, Copy, Default)]
@@ -63,7 +68,11 @@ pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
     is_endgame: bool,
     /// Zobrist keys along the current line, for threefold-repetition detection.
-    history: Vec<u64>,
+    position_history: Vec<u64>,
+    /// History-heuristic scores, indexed `[side][from][to]` flattened.
+    history: Vec<i32>,
+    /// Two killer moves per ply.
+    killers: Vec<[Option<Move>; 2]>,
     nodes: u64,
     deadline: Option<Instant>,
     stopped: bool,
@@ -76,7 +85,9 @@ impl<'a> Searcher<'a> {
         Searcher {
             transposition_table,
             is_endgame,
-            history: Vec::new(),
+            position_history: Vec::new(),
+            history: vec![0; HISTORY_SIZE],
+            killers: vec![[None, None]; MAX_SEARCH_PLY],
             nodes: 0,
             deadline: None,
             stopped: false,
@@ -98,7 +109,7 @@ impl<'a> Searcher<'a> {
 
         // Fallback so we always return a legal move, even if depth 1 is cut off.
         let mut result = SearchResult {
-            best_move: prioritize_legal_moves(board, self.is_endgame)
+            best_move: prioritize_legal_moves(board, self.is_endgame, &OrderingContext::empty())
                 .into_iter()
                 .next(),
             score: 0,
@@ -133,11 +144,12 @@ impl<'a> Searcher<'a> {
     /// path and the tactical tests.
     pub fn best_move(&mut self, board: &mut Board, depth: i32) -> Option<Move> {
         let (best, _score) = self.negamax(board, depth, -MATE, MATE, 0);
-        best.or_else(|| {
-            prioritize_legal_moves(board, self.is_endgame)
-                .into_iter()
-                .next()
-        })
+        if best.is_some() {
+            return best;
+        }
+        prioritize_legal_moves(board, self.is_endgame, &OrderingContext::empty())
+            .into_iter()
+            .next()
     }
 
     /// Capture a decision tree `tree_depth` plies deep — the debug diagnostic.
@@ -151,7 +163,7 @@ impl<'a> Searcher<'a> {
         if tree_depth == 0 {
             return Vec::new();
         }
-        let moves = prioritize_legal_moves(board, self.is_endgame);
+        let moves = prioritize_legal_moves(board, self.is_endgame, &self.ordering_context(ply));
         let mut nodes = Vec::with_capacity(moves.len());
         for mv in moves {
             let undo = board.make_move(mv);
@@ -190,9 +202,9 @@ impl<'a> Searcher<'a> {
         ply: i32,
     ) -> (Option<Move>, i32) {
         let zobrist_key = board.zobrist();
-        self.history.push(zobrist_key);
+        self.position_history.push(zobrist_key);
         let result = self.search_node(board, depth, alpha, beta, ply, zobrist_key);
-        self.history.pop();
+        self.position_history.pop();
         result
     }
 
@@ -257,13 +269,17 @@ impl<'a> Searcher<'a> {
             if depth < QUIESCENCE_FLOOR {
                 return (None, stand_pat);
             }
-            let captures_and_checks = get_moves_to_dequiet(board, self.is_endgame);
+            let captures_and_checks =
+                get_moves_to_dequiet(board, self.is_endgame, &self.ordering_context(ply));
             if captures_and_checks.is_empty() {
                 return (None, stand_pat);
             }
             order_tt_move_first(captures_and_checks, tt_move)
         } else {
-            order_tt_move_first(prioritize_legal_moves(board, self.is_endgame), tt_move)
+            order_tt_move_first(
+                prioritize_legal_moves(board, self.is_endgame, &self.ordering_context(ply)),
+                tt_move,
+            )
         };
 
         let mut best_score = -MATE;
@@ -289,6 +305,9 @@ impl<'a> Searcher<'a> {
             }
             alpha = alpha.max(best_score);
             if alpha >= beta {
+                if depth > 0 {
+                    self.record_cutoff(board, mv, depth, ply);
+                }
                 break;
             }
         }
@@ -328,11 +347,39 @@ impl<'a> Searcher<'a> {
         if board.halfmove_clock() >= 100 {
             return true;
         }
-        self.history
+        self.position_history
             .iter()
             .filter(|&&seen| seen == zobrist_key)
             .count()
             >= 3
+    }
+
+    fn ordering_context(&self, ply: i32) -> OrderingContext<'_> {
+        let killers = self
+            .killers
+            .get(ply as usize)
+            .copied()
+            .unwrap_or([None, None]);
+        OrderingContext {
+            killers,
+            history: &self.history,
+        }
+    }
+
+    /// Credit a quiet move that caused a beta-cutoff: store it as a killer for the
+    /// ply and bump its history score.
+    fn record_cutoff(&mut self, board: &Board, mv: Move, depth: i32, ply: i32) {
+        if mv.is_capture() || mv.promotion().is_some() {
+            return;
+        }
+        if let Some(slot) = self.killers.get_mut(ply as usize) {
+            if slot[0] != Some(mv) {
+                slot[1] = slot[0];
+                slot[0] = Some(mv);
+            }
+        }
+        let index = history_index(board.side_to_move(), mv);
+        self.history[index] = (self.history[index] + depth * depth).min(HISTORY_MAX);
     }
 }
 
@@ -652,5 +699,57 @@ mod tests {
         let cold = nodes(MIDGAME, 5, false);
         let warm = nodes(MIDGAME, 5, true);
         assert!(warm < cold, "warm {warm} should be < cold {cold}");
+    }
+
+    // --- Epic 3: killers and history ---
+
+    #[test]
+    fn killers_and_history_update_on_a_quiet_cutoff() {
+        let mut board = Board::from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").unwrap();
+        let mut table = TranspositionTable::new();
+        let mut searcher = Searcher::new(&mut table, false);
+
+        // AC-3.1: a new Searcher starts empty.
+        assert!(searcher.killers.iter().all(|slot| *slot == [None, None]));
+        assert!(searcher.history.iter().all(|&score| score == 0));
+
+        let quiets: Vec<Move> = generate_legal(&mut board)
+            .into_iter()
+            .filter(|mv| !mv.is_capture() && mv.promotion().is_none())
+            .collect();
+        let (first, second) = (quiets[0], quiets[1]);
+
+        // AC-1.1, AC-2.1: a quiet cutoff stores a killer and adds depth².
+        searcher.record_cutoff(&board, first, 4, 0);
+        assert_eq!(searcher.killers[0][0], Some(first));
+        assert_eq!(
+            searcher.history[history_index(board.side_to_move(), first)],
+            16
+        );
+
+        // AC-1.4: a distinct killer shifts into the first slot.
+        searcher.record_cutoff(&board, second, 3, 0);
+        assert_eq!(searcher.killers[0], [Some(second), Some(first)]);
+
+        // AC-1.3: recording the same killer leaves the slots unchanged.
+        searcher.record_cutoff(&board, second, 2, 0);
+        assert_eq!(searcher.killers[0], [Some(second), Some(first)]);
+    }
+
+    #[test]
+    fn history_accumulates_across_iterations() {
+        // AC-3.2: the table fills as iterative deepening runs.
+        let mut board = Board::from_fen(MIDGAME).unwrap();
+        let mut table = TranspositionTable::new();
+        let mut searcher = Searcher::new(&mut table, false);
+        searcher.search(
+            &mut board,
+            &SearchLimits {
+                max_depth: 5,
+                ..Default::default()
+            },
+            Instant::now(),
+        );
+        assert!(searcher.history.iter().any(|&score| score > 0));
     }
 }

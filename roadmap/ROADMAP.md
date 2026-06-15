@@ -89,3 +89,15 @@ change instead of guessing.
 | EPD tactical suite (solve-rate) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Self-play match (Elo) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Gate self-test + docs (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
+
+### Epic 3 — Killer-move and history ordering
+
+Order quiet moves with killer moves and the history heuristic so alpha-beta cuts
+more and the search reaches greater depth in the same time. Ordering stays one
+composed function; the gain is measured with the strength harness.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| Killer moves (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Iterative deepening |
+| History heuristic (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Killer moves |
+| Measure (Elo) + docs (@branransom) | Done | [killers-history](specs/killers-history/design.md) | History heuristic, Strength measurement |

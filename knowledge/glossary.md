@@ -48,6 +48,8 @@ field, and record must fit. The chess logic lives in the Rust core
 | Zobrist hash | The key identifying a position in the transposition table | `Board::zobrist` | `chess.polyglot.zobrist_hash` |
 | HashEntry | One transposition-table record: move, depth, value, bound flag, age | `HashEntry`, `Flag` | |
 | MVV-LVA | Most Valuable Victim – Least Valuable Aggressor — capture-ordering heuristic | `movesort` | |
+| Killer move | A quiet move that caused a beta-cutoff at a ply, tried first there next time | `killers` | |
+| History heuristic | A from-to score table of cutoff frequency that orders quiet moves | `history` | |
 | Negamax | Minimax reformulated so each node negates the child's score | `negamax` | |
 | Bitboard | A 64-bit word, one bit per square, encoding a piece set | `Bitboard` | |
 | Magic bitboard | Perfect-hash lookup of a slider's attacks by blocker configuration | | |
@@ -69,8 +71,8 @@ field, and record must fit. The chess logic lives in the Rust core
 | Elo | A rating-difference estimate from a match's score rate | `selfplay.py` | |
 
 Bitboard, magic bitboard, make/unmake, piece-square table, negamax, iterative
-deepening, the triangular PV-table, mate scores, and the centipawn follow
-[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft,
-MVV-LVA, EPD, Elo, and self-play already did. The time-control tokens are UCI;
+deepening, the triangular PV-table, mate scores, the centipawn, and the killer and
+history heuristics follow [Chess Programming Wiki](https://www.chessprogramming.org/)
+conventions; perft, MVV-LVA, EPD, Elo, and self-play already did. The time-control tokens are UCI;
 `SearchLimits` follows Stockfish's `LimitsType`. `brandobot_core` is this repo's
 PyO3 module name.
