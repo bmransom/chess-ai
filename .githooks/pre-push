@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# foundry-template: pre-push v1
+# Pre-push gate; bypass once with `git push --no-verify`.
+exec "$(git rev-parse --show-toplevel)/scripts/check-fast.sh"

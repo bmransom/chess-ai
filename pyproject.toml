@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py311"
+# The vitepress site and the local virtualenv are not ours to lint.
+extend-exclude = ["docs", ".venv"]
+
+[tool.pytest.ini_options]
+# importlib import mode keeps the test modules in src/tests/ (board.py,
+# transposition_table.py) from colliding with the like-named src/ modules.
+addopts = "--import-mode=importlib"
+testpaths = ["src/tests", "tests"]
+python_files = ["test_*.py", "board.py", "next_move.py", "transposition_table.py"]

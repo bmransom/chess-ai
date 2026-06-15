@@ -1,0 +1,12 @@
+// foundry-template: vitepress-tsconfig v1
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ESNext",
+    "types": ["node"],
+    "skipLibCheck": true,
+    "strict": true
+  },
+  "include": [".vitepress/**/*.ts"]
+}

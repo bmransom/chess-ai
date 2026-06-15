@@ -1,7 +1,6 @@
 import sys
 sys.path.insert(0, 'src')
 import unittest
-import chess
 from board import Board
 
 class BoardTest(unittest.TestCase):

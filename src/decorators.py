@@ -31,7 +31,7 @@ def generate_move_tree(func):
         beta = args[4]
         try:
             move = board.peek()
-        except:
+        except IndexError:
             move = 'root'
             node_id = 'root'
 

@@ -1,0 +1,17 @@
+{
+  "//": "foundry-template: vitepress-package v1",
+  "name": "docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "python3 ../scripts/knowledge.py sync && python3 ../scripts/knowledge.py sidebar -o .vitepress/sidebar.generated.json",
+    "dev": "vitepress dev",
+    "prebuild": "python3 ../scripts/knowledge.py sync && python3 ../scripts/knowledge.py sidebar -o .vitepress/sidebar.generated.json",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "vitepress": "^1.6.3"
+  }
+}

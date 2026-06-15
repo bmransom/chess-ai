@@ -3,3 +3,19 @@ build
 dist
 __pycache__
 main.spec
+
+# Python tooling
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# engine runtime outputs
+transposition_table.json
+tree.json
+principal_variation.json
+
+# knowledge site (vitepress) — keep knowledge/package-lock.json tracked
+knowledge/node_modules/
+knowledge/.vitepress/cache/
+knowledge/.vitepress/dist/
+knowledge/.vitepress/sidebar.generated.json

@@ -1,0 +1,12 @@
+{
+  "_foundry_seed": "knowledge-config v1",
+  "index_title": "Knowledge",
+  "types": ["reference", "architecture", "guide", "decision"],
+  "lifecycles": ["current", "superseded", "historical"],
+  "required_fields": ["title", "description", "type"],
+  "concept_globs": ["knowledge/*.md", "knowledge/**/*.md"],
+  "exclude_substrings": ["/node_modules/", "/.vitepress/"],
+  "exclude_prefixes": ["knowledge/crates/"],
+  "reserved_files": ["knowledge/index.md", "knowledge/log.md"],
+  "skill_ref_prefixes": ["scripts/", "knowledge/", "roadmap/specs/", ".claude/"]
+}

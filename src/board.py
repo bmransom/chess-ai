@@ -1,5 +1,4 @@
 import chess
-import numpy as np
 from evaluate import piece_values, get_position_value, color_multiplier
 
 def initialize_piece_count():
