@@ -54,11 +54,13 @@ impl TranspositionTable {
         }
     }
 
-    /// The stored entry, if its key matches and it was searched at least as deep.
-    pub fn get(&self, zobrist: u64, depth: i32) -> Option<HashEntry> {
+    /// The stored entry whose key matches, regardless of depth. The search
+    /// decides whether the entry is deep enough to cut; even a shallow entry
+    /// seeds move ordering with its best Move.
+    pub fn probe(&self, zobrist: u64) -> Option<HashEntry> {
         let index = (zobrist % TABLE_SIZE as u64) as usize;
         match self.table[index] {
-            Some(stored) if stored.zobrist == zobrist && stored.depth >= depth => Some(stored),
+            Some(stored) if stored.zobrist == zobrist => Some(stored),
             _ => None,
         }
     }
@@ -88,7 +90,7 @@ mod tests {
         let mut table = TranspositionTable::new();
         let stored = entry(5, 0);
         table.replace(stored);
-        assert_eq!(table.get(0xABCD, 5), Some(stored));
+        assert_eq!(table.probe(0xABCD), Some(stored));
     }
 
     #[test]
@@ -97,7 +99,7 @@ mod tests {
         table.replace(entry(5, 0));
         let newer = entry(5, 2);
         table.replace(newer);
-        assert_eq!(table.get(0xABCD, 5), Some(newer));
+        assert_eq!(table.probe(0xABCD), Some(newer));
     }
 
     #[test]
@@ -106,7 +108,7 @@ mod tests {
         table.replace(entry(4, 0));
         let deeper = entry(5, 0);
         table.replace(deeper);
-        assert_eq!(table.get(0xABCD, 5), Some(deeper));
+        assert_eq!(table.probe(0xABCD), Some(deeper));
     }
 
     #[test]
@@ -115,6 +117,6 @@ mod tests {
         let deeper = entry(5, 0);
         table.replace(deeper);
         table.replace(entry(4, 0));
-        assert_eq!(table.get(0xABCD, 5), Some(deeper));
+        assert_eq!(table.probe(0xABCD), Some(deeper));
     }
 }

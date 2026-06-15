@@ -6,3 +6,9 @@ Feature: UCI chess engine
     Given the chess engine is available
     When it receives the "uci" command
     Then it replies "uciok"
+
+  Scenario: it reports a move and a principal variation under a movetime budget
+    Given the chess engine is available
+    When it searches the start position with "movetime 200"
+    Then it replies "bestmove"
+    And it reports a principal variation

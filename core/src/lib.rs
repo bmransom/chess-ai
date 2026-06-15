@@ -147,7 +147,7 @@ impl Searcher {
             let plies = tree_depth.clamp(1, depth.max(1));
             let nodes = {
                 let mut scout = search::Searcher::new(&mut self.transposition_table, is_endgame);
-                scout.capture_tree(&mut self.board, depth as i32, plies)
+                scout.capture_tree(&mut self.board, depth as i32, plies, 0)
             };
             let captured = nodes.into_iter().map(CapturedNode::from_tree).collect();
             self.last_decision_tree = Some((self.board.to_fen(), captured));
@@ -157,6 +157,66 @@ impl Searcher {
             Some(mv) => mv.to_uci(),
             None => NULL_MOVE.to_string(),
         }
+    }
+
+    /// Iteratively deepen within the given limits and return the result. All
+    /// times are milliseconds. `score_centipawns` is None when a mate is found;
+    /// `mate_in_moves` is the signed moves to mate otherwise.
+    #[pyo3(signature = (max_depth=64, move_time_ms=None, white_time_ms=None,
+                        black_time_ms=None, white_increment_ms=0,
+                        black_increment_ms=0, moves_to_go=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn search<'py>(
+        &mut self,
+        py: Python<'py>,
+        max_depth: u32,
+        move_time_ms: Option<u64>,
+        white_time_ms: Option<u64>,
+        black_time_ms: Option<u64>,
+        white_increment_ms: u64,
+        black_increment_ms: u64,
+        moves_to_go: Option<u32>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let is_endgame = eval::is_endgame(&self.board);
+        let limits = search::SearchLimits {
+            max_depth,
+            move_time_ms,
+            white_time_ms,
+            black_time_ms,
+            white_increment_ms,
+            black_increment_ms,
+            moves_to_go,
+        };
+        let result = {
+            let mut searcher = search::Searcher::new(&mut self.transposition_table, is_endgame);
+            searcher.search(&mut self.board, &limits, std::time::Instant::now())
+        };
+
+        let (score_centipawns, mate_in_moves) = match search::mate_in_moves(result.score) {
+            Some(moves) => (None, Some(moves)),
+            None => (Some(result.score), None),
+        };
+        let principal_variation: Vec<String> = result
+            .principal_variation
+            .iter()
+            .map(|mv| mv.to_uci())
+            .collect();
+
+        let dict = PyDict::new(py);
+        dict.set_item(
+            "best_move",
+            result
+                .best_move
+                .map(|mv| mv.to_uci())
+                .unwrap_or_else(|| NULL_MOVE.to_string()),
+        )?;
+        dict.set_item("score_centipawns", score_centipawns)?;
+        dict.set_item("mate_in_moves", mate_in_moves)?;
+        dict.set_item("depth", result.depth)?;
+        dict.set_item("nodes", result.nodes)?;
+        dict.set_item("elapsed_ms", result.elapsed_ms)?;
+        dict.set_item("principal_variation", principal_variation)?;
+        Ok(dict)
     }
 
     /// The decision tree captured by the last `next_move(capture_tree=True)`, or

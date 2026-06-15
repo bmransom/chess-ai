@@ -1,7 +1,8 @@
 Chess AI is **brandobot**, a chess engine. A native Rust core (`core/`, the
 `brandobot_core` PyO3 module) owns all chess logic — bitboard move generation,
-evaluation, negamax + alpha-beta, quiescence, MVV-LVA ordering, and a
-transposition table. Two thin Python wrappers are the production entrypoints: a
+evaluation, iterative-deepening negamax with alpha-beta, quiescence, MVV-LVA
+ordering, a transposition table, and time management. Two thin Python wrappers
+are the production entrypoints: a
 UCI engine over stdin/stdout (`src/main.py`, bridged to lichess via lichess-bot)
 and a Flask HTTP API (`src/api.py`).
 

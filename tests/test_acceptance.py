@@ -67,3 +67,20 @@ def returns_legal_move(uci_session):
     assert match, uci_session["stdout"]
     move = match.group(1)
     assert chess.Move.from_uci(move) in chess.Board().legal_moves
+
+
+@when(parsers.parse('it searches the start position with "{go_args}"'))
+def search_position(uci_session, go_args):
+    result = run_engine(f"position startpos\ngo {go_args}\nquit\n")
+    uci_session["stdout"] = result.stdout
+    uci_session["returncode"] = result.returncode
+
+
+@then("it reports a principal variation")
+def reports_principal_variation(uci_session):
+    assert uci_session["returncode"] == 0, uci_session
+    info_lines = [
+        line for line in uci_session["stdout"].splitlines() if line.startswith("info")
+    ]
+    assert info_lines, uci_session["stdout"]
+    assert any(" pv " in line for line in info_lines), uci_session["stdout"]
