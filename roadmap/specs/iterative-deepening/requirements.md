@@ -3,7 +3,7 @@ title: Iterative deepening — requirements
 description: User stories and EARS acceptance criteria for iterative deepening, time management, and principal variation on the Rust Searcher.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Iterative deepening — requirements
 

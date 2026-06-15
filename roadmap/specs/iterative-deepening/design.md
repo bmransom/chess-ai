@@ -3,7 +3,7 @@ title: Iterative deepening — design
 description: Architecture and decisions for iterative deepening, time management, and principal variation, with UCI/CPW-faithful naming.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Iterative deepening — design
 

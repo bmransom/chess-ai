@@ -70,9 +70,9 @@ principal variation. Improves move quality and enables timed play on lichess.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Transposition-table reuse + mate-distance scoring | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Rust engine core |
-| Time budget (`SearchLimits`) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Transposition-table reuse + mate-distance scoring |
-| Iterative-deepening loop + stop | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Time budget (`SearchLimits`) |
-| Principal variation (triangular PV-table) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Iterative-deepening loop + stop |
-| Time-aware `search` seam (PyO3) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Principal variation (triangular PV-table) |
-| UCI time controls (`go` + `info pv`) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Time-aware `search` seam (PyO3) |
+| Transposition-table reuse + mate-distance scoring (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Rust engine core |
+| Time budget (`SearchLimits`) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Transposition-table reuse + mate-distance scoring |
+| Iterative-deepening loop + stop (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Time budget (`SearchLimits`) |
+| Principal variation (triangular PV-table) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Iterative-deepening loop + stop |
+| Time-aware `search` seam (PyO3) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Principal variation (triangular PV-table) |
+| UCI time controls (`go` + `info pv`) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Time-aware `search` seam (PyO3) |

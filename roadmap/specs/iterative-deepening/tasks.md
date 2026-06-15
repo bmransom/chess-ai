@@ -3,7 +3,7 @@ title: Iterative deepening — tasks
 description: Waved implementation plan; each task names the gate that proves it.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Iterative deepening — tasks
 

@@ -53,11 +53,19 @@ field, and record must fit. The chess logic lives in the Rust core
 | Magic bitboard | Perfect-hash lookup of a slider's attacks by blocker configuration | | |
 | Make/unmake | Apply a Move, then reverse it, updating the Zobrist key incrementally | `make_move` / `unmake_move` | |
 | Piece-square table | Per-piece, per-square positional bonus added to material in evaluation | | |
-| Principal variation | The best line of play the search currently expects (planned) | `pline` | |
+| Principal variation | The best line the search expects; reported each iteration | `principal_variation` (UCI `pv`) | `pline` |
+| Iterative deepening | Search depth 1, 2, 3 … reusing each iteration's results for ordering | `SearchLimits.max_depth` | |
+| Triangular PV-table | Ply-indexed array that collects the principal variation | `pv_table` | |
+| Mate score | A score near ±`MATE`, offset by distance to the root; reported as `mate_in_moves` | `is_mate_score` | |
+| Centipawn | Evaluation unit, one hundredth of a pawn | `score_centipawns` (UCI `cp`) | |
+| Time control | The UCI clock tokens the wrapper parses into a per-move budget | `wtime`/`btime`/`winc`/`binc`/`movetime`/`movestogo` | |
+| SearchLimits | The parsed per-search limits, depth and time | `SearchLimits` | |
 | Perft | Performance test — counts leaf nodes to a depth to validate move generation | `perft(fen, depth)` | |
 | Endgame | Late-game phase that triggers deeper search | `Board::is_endgame` | |
 | brandobot_core | The Rust engine core exposed to Python as a PyO3 module | `import brandobot_core` | |
 
-Bitboard, magic bitboard, make/unmake, piece-square table, and negamax follow
-[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft
-and MVV-LVA already did. `brandobot_core` is this repo's PyO3 module name.
+Bitboard, magic bitboard, make/unmake, piece-square table, negamax, iterative
+deepening, the triangular PV-table, mate scores, and the centipawn follow
+[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft and
+MVV-LVA already did. The time-control tokens are UCI; `SearchLimits` follows
+Stockfish's `LimitsType`. `brandobot_core` is this repo's PyO3 module name.
