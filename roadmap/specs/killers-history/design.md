@@ -3,7 +3,7 @@ title: Killers and history — design
 description: Killer-move and history-heuristic ordering of quiet moves, as one composed function, measured with the harness.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Killers and history — design
 
@@ -68,6 +68,11 @@ search. No cross-move aging is needed.
   worktree and run `selfplay.py`; record the Elo delta in the PR. This is evidence,
   not a blocking gate — small deltas need hundreds of games.
 
+**Measured result:** Elo +2 ± 21 over 300 games at 100 ms/move — no measurable
+strength gain — and ~6% more nodes at fixed depth. The PST-based quiet order was
+already strong, so history-primary ordering did not improve it. Kept as standard
+infrastructure for later ordering and evaluation work, which may make it pay off.
+
 ## Naming and provenance
 
 | Term | Definition | Provenance |
@@ -76,7 +81,7 @@ search. No cross-move aging is needed.
 | History heuristic | A from-to score table of cutoff frequency that orders quiet moves | CPW "History Heuristic" |
 
 Internal names stay expressive (`killers`, `history`, `OrderingContext`). Both
-terms enter `knowledge/glossary.md` in Wave 3.2; they are not in the glossary yet.
+terms are recorded in `knowledge/glossary.md`.
 
 ## Alternatives considered
 

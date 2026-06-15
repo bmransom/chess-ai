@@ -3,7 +3,7 @@ title: Killers and history — requirements
 description: User stories and EARS acceptance criteria for killer-move and history-heuristic ordering of quiet moves.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Killers and history — requirements
 

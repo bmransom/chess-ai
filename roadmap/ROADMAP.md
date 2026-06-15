@@ -98,6 +98,6 @@ composed function; the gain is measured with the strength harness.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Killer moves | Planned | [killers-history](specs/killers-history/design.md) | Iterative deepening |
-| History heuristic | Planned | [killers-history](specs/killers-history/design.md) | Killer moves |
-| Measure (Elo) + docs | Planned | [killers-history](specs/killers-history/design.md) | History heuristic, Strength measurement |
+| Killer moves (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Iterative deepening |
+| History heuristic (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Killer moves |
+| Measure (Elo) + docs (@branransom) | Done | [killers-history](specs/killers-history/design.md) | History heuristic, Strength measurement |
