@@ -64,12 +64,15 @@ Searcher.
 
 ### Epic 1 — Iterative deepening with principal variation
 
-Replace fixed-depth search with iterative deepening that reuses the
-transposition table and reports the principal variation — improving move
-quality and enabling time management. Built on the Rust Searcher.
+Replace fixed-depth search with iterative deepening on the Rust Searcher: deepen
+within a time budget, reuse the transposition table across depths, and report the
+principal variation. Improves move quality and enables timed play on lichess.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Iterative-deepening search loop in `Searcher` | Backlog | — | Rust engine core |
-| Principal variation reporting (`info pv` over UCI) | Backlog | — | Iterative-deepening search loop |
-| Time-managed `go` (stop at a time budget) | Backlog | — | Iterative-deepening search loop |
+| Transposition-table reuse + mate-distance scoring | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Rust engine core |
+| Time budget (`SearchLimits`) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Transposition-table reuse + mate-distance scoring |
+| Iterative-deepening loop + stop | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Time budget (`SearchLimits`) |
+| Principal variation (triangular PV-table) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Iterative-deepening loop + stop |
+| Time-aware `search` seam (PyO3) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Principal variation (triangular PV-table) |
+| UCI time controls (`go` + `info pv`) | Planned | [iterative-deepening](specs/iterative-deepening/design.md) | Time-aware `search` seam (PyO3) |
