@@ -44,14 +44,32 @@ Use these words in board tables and spec status headers.
 
 ## Status Dashboard
 
-### Epic 0 — Iterative deepening with principal variation
+### Epic 0 — Rust engine core (PyO3)
 
-Replace fixed-depth search with iterative deepening that reuses the
-transposition table and reports the principal variation — improving move
-quality and enabling time management.
+Port the move-picking core to a native Rust crate (`brandobot_core`, via PyO3 and
+maturin) with hand-rolled bitboards; Python keeps only the UCI loop and Flask API
+as thin wrappers. A faithful port — same evaluation and search — so strength comes
+from native speed. Lands before iterative deepening, which then builds on the Rust
+Searcher.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Iterative-deepening search loop in `Searcher` | Backlog | — | — |
+| Crate scaffold + maturin + gate wiring (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | — |
+| Bitboard Board + make/unmake + Zobrist | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Crate scaffold + maturin + gate wiring |
+| Move generation + perft suite | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Bitboard Board + make/unmake + Zobrist |
+| Evaluation, MoveSorter, TranspositionTable | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Move generation + perft suite |
+| Searcher (negamax + alpha-beta + quiescence + TT) | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Evaluation, MoveSorter, TranspositionTable |
+| UCI + Flask wrappers on `brandobot_core` | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Searcher (negamax + alpha-beta + quiescence + TT) |
+| Cutover: remove python-chess + docs | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | UCI + Flask wrappers on `brandobot_core` |
+
+### Epic 1 — Iterative deepening with principal variation
+
+Replace fixed-depth search with iterative deepening that reuses the
+transposition table and reports the principal variation — improving move
+quality and enabling time management. Built on the Rust Searcher.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| Iterative-deepening search loop in `Searcher` | Backlog | — | Rust engine core |
 | Principal variation reporting (`info pv` over UCI) | Backlog | — | Iterative-deepening search loop |
 | Time-managed `go` (stop at a time budget) | Backlog | — | Iterative-deepening search loop |
