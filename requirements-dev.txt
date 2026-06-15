@@ -2,3 +2,4 @@
 pytest
 pytest-bdd
 ruff
+maturin>=1.7,<2.0

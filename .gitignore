@@ -14,6 +14,9 @@ transposition_table.json
 tree.json
 principal_variation.json
 
+# Rust build output
+target/
+
 # knowledge site (vitepress) — keep knowledge/package-lock.json tracked
 knowledge/node_modules/
 knowledge/.vitepress/cache/
