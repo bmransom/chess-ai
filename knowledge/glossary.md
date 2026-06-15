@@ -63,9 +63,14 @@ field, and record must fit. The chess logic lives in the Rust core
 | Perft | Performance test — counts leaf nodes to a depth to validate move generation | `perft(fen, depth)` | |
 | Endgame | Late-game phase that triggers deeper search | `Board::is_endgame` | |
 | brandobot_core | The Rust engine core exposed to Python as a PyO3 module | `import brandobot_core` | |
+| EPD | Extended Position Description — a FEN plus operations such as `bm` (best move) | `bench/wac.epd` | |
+| Solve-rate | The fraction of EPD positions whose searched move matches a `bm` move | `epd_suite.py` | |
+| Self-play | Two engine builds playing a match to compare strength | `selfplay.py` | |
+| Elo | A rating-difference estimate from a match's score rate | `selfplay.py` | |
 
 Bitboard, magic bitboard, make/unmake, piece-square table, negamax, iterative
 deepening, the triangular PV-table, mate scores, and the centipawn follow
-[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft and
-MVV-LVA already did. The time-control tokens are UCI; `SearchLimits` follows
-Stockfish's `LimitsType`. `brandobot_core` is this repo's PyO3 module name.
+[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft,
+MVV-LVA, EPD, Elo, and self-play already did. The time-control tokens are UCI;
+`SearchLimits` follows Stockfish's `LimitsType`. `brandobot_core` is this repo's
+PyO3 module name.

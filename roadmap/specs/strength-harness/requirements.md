@@ -3,7 +3,7 @@ title: Strength harness — requirements
 description: User stories and EARS acceptance criteria for an EPD tactical suite and a self-play match harness that measure engine strength.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Strength harness — requirements
 

@@ -86,6 +86,6 @@ change instead of guessing.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| EPD tactical suite (solve-rate) | Planned | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
-| Self-play match (Elo) | Planned | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
-| Gate self-test + docs | Planned | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
+| EPD tactical suite (solve-rate) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
+| Self-play match (Elo) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
+| Gate self-test + docs (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
