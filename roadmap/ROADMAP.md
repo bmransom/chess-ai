@@ -76,3 +76,16 @@ principal variation. Improves move quality and enables timed play on lichess.
 | Principal variation (triangular PV-table) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Iterative-deepening loop + stop |
 | Time-aware `search` seam (PyO3) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Principal variation (triangular PV-table) |
 | UCI time controls (`go` + `info pv`) (@branransom) | Done | [iterative-deepening](specs/iterative-deepening/design.md) | Time-aware `search` seam (PyO3) |
+
+### Epic 2 — Strength measurement
+
+Turn engine changes into a measured strength delta: an EPD tactical suite that
+reports a solve-rate and a self-play match that reports an Elo estimate, with
+python-chess as the independent oracle. Verifies every future search and eval
+change instead of guessing.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| EPD tactical suite (solve-rate) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
+| Self-play match (Elo) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
+| Gate self-test + docs (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
