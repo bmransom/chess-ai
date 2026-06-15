@@ -3,7 +3,7 @@ title: Rust engine core — design
 description: Architecture and decisions for the native Rust core behind a PyO3 seam, with a faithful-port correctness strategy.
 ---
 
-> **Status:** In progress (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Rust engine core — design
 

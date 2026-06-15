@@ -3,7 +3,7 @@ title: Rust engine core — requirements
 description: User stories and EARS acceptance criteria for porting the engine core to Rust behind a PyO3 seam.
 ---
 
-> **Status:** In progress (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Rust engine core — requirements
 

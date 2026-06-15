@@ -1,14 +1,17 @@
-Chess AI is **brandobot**, a Python chess engine. It picks moves with minimax +
-alpha-beta pruning, quiescence search, MVV-LVA ordering, and a transposition
-table. It ships two production entrypoints: a UCI engine over stdin/stdout
-(`src/main.py`, bridged to lichess via lichess-bot) and a Flask HTTP API
-(`src/api.py`).
+Chess AI is **brandobot**, a chess engine. A native Rust core (`core/`, the
+`brandobot_core` PyO3 module) owns all chess logic — bitboard move generation,
+evaluation, negamax + alpha-beta, quiescence, MVV-LVA ordering, and a
+transposition table. Two thin Python wrappers are the production entrypoints: a
+UCI engine over stdin/stdout (`src/main.py`, bridged to lichess via lichess-bot)
+and a Flask HTTP API (`src/api.py`).
 
 ## Commands
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt  # one-time setup
-scripts/check-fast.sh            # the canonical gate: ruff + pytest + knowledge check
+# one-time setup: needs a Rust toolchain (https://rustup.rs)
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/maturin develop --release -m core/Cargo.toml   # build the Rust core into the venv
+scripts/check-fast.sh            # canonical gate: cargo fmt/clippy/test + maturin + ruff + pytest + knowledge
 .venv/bin/python src/main.py     # run the UCI engine (type: uci, isready, go, quit)
 .venv/bin/python src/api.py      # run the Flask HTTP API
 .venv/bin/python src/perft.py    # move-generation benchmark

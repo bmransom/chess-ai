@@ -54,13 +54,13 @@ Searcher.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Crate scaffold + maturin + gate wiring (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | — |
-| Bitboard Board + make/unmake + Zobrist (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | Crate scaffold + maturin + gate wiring |
-| Move generation + perft suite (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | Bitboard Board + make/unmake + Zobrist |
-| Evaluation, MoveSorter, TranspositionTable | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Move generation + perft suite |
-| Searcher (negamax + alpha-beta + quiescence + TT) | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Evaluation, MoveSorter, TranspositionTable |
-| UCI + Flask wrappers on `brandobot_core` | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Searcher (negamax + alpha-beta + quiescence + TT) |
-| Cutover: remove python-chess + docs | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | UCI + Flask wrappers on `brandobot_core` |
+| Crate scaffold + maturin + gate wiring (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | — |
+| Bitboard Board + make/unmake + Zobrist (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | Crate scaffold + maturin + gate wiring |
+| Move generation + perft suite (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | Bitboard Board + make/unmake + Zobrist |
+| Evaluation, MoveSorter, TranspositionTable (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | Move generation + perft suite |
+| Searcher (negamax + alpha-beta + quiescence + TT) (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | Evaluation, MoveSorter, TranspositionTable |
+| UCI + Flask wrappers on `brandobot_core` (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | Searcher (negamax + alpha-beta + quiescence + TT) |
+| Cutover: remove python-chess + docs (@branransom) | Done | [rust-engine-core](specs/rust-engine-core/design.md) | UCI + Flask wrappers on `brandobot_core` |
 
 ### Epic 1 — Iterative deepening with principal variation
 

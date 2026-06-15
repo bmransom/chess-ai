@@ -4,8 +4,7 @@ target-version = "py311"
 extend-exclude = ["docs", ".venv"]
 
 [tool.pytest.ini_options]
-# importlib import mode keeps the test modules in src/tests/ (board.py,
-# transposition_table.py) from colliding with the like-named src/ modules.
+# importlib import mode keeps src/tests modules from colliding with src/ modules.
 addopts = "--import-mode=importlib"
 testpaths = ["src/tests", "tests"]
-python_files = ["test_*.py", "board.py", "next_move.py", "transposition_table.py", "core_seam.py", "movegen_diff.py", "eval_parity.py"]
+python_files = ["test_*.py", "core_seam.py", "movegen_diff.py", "eval_parity.py", "no_python_chess.py"]

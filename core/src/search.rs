@@ -44,6 +44,21 @@ impl<'a> Searcher<'a> {
         })
     }
 
+    /// Each root move paired with its negamax value — the data behind the
+    /// decision-tree debug endpoint. Each move is searched with a full window,
+    /// so every score is exact.
+    pub fn root_scores(&mut self, board: &mut Board, depth: i32) -> Vec<(Move, i32)> {
+        let moves = prioritize_legal_moves(board, self.is_endgame);
+        let mut scores = Vec::with_capacity(moves.len());
+        for mv in moves {
+            let undo = board.make_move(mv);
+            let (_, child) = self.negamax(board, depth - 1, -MATE, MATE);
+            board.unmake_move(mv, undo);
+            scores.push((mv, -child));
+        }
+        scores
+    }
+
     fn negamax(
         &mut self,
         board: &mut Board,

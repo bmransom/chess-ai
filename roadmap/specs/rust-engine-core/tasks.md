@@ -3,7 +3,7 @@ title: Rust engine core — tasks
 description: Waved implementation plan for the native Rust core; each task names the gate that proves it.
 ---
 
-> **Status:** In progress (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** Done (2026-06-15) — tracked on the [board](../../ROADMAP.md).
 
 # Rust engine core — tasks
 

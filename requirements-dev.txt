@@ -3,3 +3,5 @@ pytest
 pytest-bdd
 ruff
 maturin>=1.7,<2.0
+# python-chess is a test-only oracle (movegen differential, legal-move checks).
+chess

@@ -1,5 +1,3 @@
-chess
-numpy
-treelib
 flask
 flask-cors
+pydantic
