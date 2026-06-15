@@ -101,3 +101,18 @@ composed function; the gain is measured with the strength harness.
 | Killer moves (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Iterative deepening |
 | History heuristic (@branransom) | Done | [killers-history](specs/killers-history/design.md) | Killer moves |
 | Measure (Elo) + docs (@branransom) | Done | [killers-history](specs/killers-history/design.md) | History heuristic, Strength measurement |
+
+### Epic 4 — Evaluation
+
+Replace material-plus-PST with a tapered evaluation on PeSTO's tuned tables, then
+add mobility, king safety, and pawn structure. Retire the binary `is_endgame`
+flag. Each term is measured against the prior build with the strength harness and
+kept only if it helps.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| Tapered foundation (PeSTO) + retire `is_endgame` | Planned | [evaluation](specs/evaluation/design.md) | Iterative deepening, Strength measurement |
+| Mobility | Planned | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
+| King safety | Planned | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
+| Pawn structure | Planned | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
+| Docs + cumulative measurement | Planned | [evaluation](specs/evaluation/design.md) | Mobility, King safety, Pawn structure |
