@@ -12,6 +12,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
       - run: pip install -r requirements-dev.txt
       - run: scripts/check-fast.sh
   docs-build:

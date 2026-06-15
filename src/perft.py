@@ -1,25 +1,19 @@
+"""Move-generation benchmark — counts leaf nodes via the Rust core."""
+
 import time
-from board import Board
-from move_sorter import prioritize_legal_moves
 
-def perft(depth, board):
-    if depth == 1:
-        return board.legal_moves.count()
-    elif depth > 1:
-        count = 0
+import brandobot_core
 
-        for move in prioritize_legal_moves(board):
-            board.push(move)
-            count += perft(depth - 1, board)
-            board.pop()
+STARTPOS_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
-        return count
-    else:
-        return 1
 
-if __name__ == '__main__':
-    tic = time.perf_counter()
-    board = Board()
-    nodes = perft(5, board)
-    toc = time.perf_counter()
-    print(f"Searched {nodes} moves in {toc - tic:0.4f} seconds")
+def main():
+    for depth in range(1, 6):
+        start = time.perf_counter()
+        nodes = brandobot_core.perft(STARTPOS_FEN, depth)
+        elapsed = time.perf_counter() - start
+        print(f"perft({depth}) = {nodes}  ({elapsed:.4f}s)")
+
+
+if __name__ == "__main__":
+    main()

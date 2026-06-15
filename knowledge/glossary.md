@@ -22,12 +22,14 @@ entries, `scripts/vocab-lint.sh` enforces it in code too.
 ## Entity model
 
 The repo's core entities and how they nest — the spine every new public type,
-field, and record must fit.
+field, and record must fit. The chess logic lives in the Rust core
+(`brandobot_core`); the Python entrypoints (`communication.py` over UCI,
+`api.py` over HTTP) are thin wrappers that hold a `Searcher`.
 
 - **Engine** — the UCI process (`src/main.py` → `communication.talk`)
-  - **Board** — a chess position (FEN); exposes `value()` and `is_endgame`
+  - **Board** — a chess position (FEN); bitboards, `value()`, and `is_endgame`
     - **Move** — one move in UCI long algebraic notation (e.g. `e2e4`)
-  - **Searcher** — runs minimax + alpha-beta to a depth; returns the best Move
+  - **Searcher** — runs negamax + alpha-beta to a depth; returns the best Move
     - **TranspositionTable** — Zobrist-keyed cache of evaluated positions
       - **HashEntry** — one cached result: move, depth, value, bound `Flag`, age
   - **MoveSorter** — orders legal moves (MVV-LVA) to improve pruning
@@ -43,9 +45,19 @@ field, and record must fit.
 | Alpha-beta pruning | Branch-and-bound that skips provably irrelevant moves during minimax | bounds `(alpha, beta)` | |
 | Quiescence search | Search extension through capture sequences to avoid the horizon effect | | |
 | Transposition table | Zobrist-keyed cache of evaluated positions, reused across the search | `TranspositionTable` | |
-| Zobrist hash | The key identifying a position in the transposition table | `chess.polyglot.zobrist_hash` | |
+| Zobrist hash | The key identifying a position in the transposition table | `Board::zobrist` | `chess.polyglot.zobrist_hash` |
 | HashEntry | One transposition-table record: move, depth, value, bound flag, age | `HashEntry`, `Flag` | |
-| MVV-LVA | Most Valuable Victim – Least Valuable Aggressor — capture-ordering heuristic | `move_sorter` | |
+| MVV-LVA | Most Valuable Victim – Least Valuable Aggressor — capture-ordering heuristic | `movesort` | |
+| Negamax | Minimax reformulated so each node negates the child's score | `negamax` | |
+| Bitboard | A 64-bit word, one bit per square, encoding a piece set | `Bitboard` | |
+| Magic bitboard | Perfect-hash lookup of a slider's attacks by blocker configuration | | |
+| Make/unmake | Apply a Move, then reverse it, updating the Zobrist key incrementally | `make_move` / `unmake_move` | |
+| Piece-square table | Per-piece, per-square positional bonus added to material in evaluation | | |
 | Principal variation | The best line of play the search currently expects (planned) | `pline` | |
-| Perft | Performance test — counts leaf nodes to a depth to validate move generation | `perft(depth, board)` | |
-| Endgame | Late-game phase that triggers deeper search | `Board.is_endgame` | |
+| Perft | Performance test — counts leaf nodes to a depth to validate move generation | `perft(fen, depth)` | |
+| Endgame | Late-game phase that triggers deeper search | `Board::is_endgame` | |
+| brandobot_core | The Rust engine core exposed to Python as a PyO3 module | `import brandobot_core` | |
+
+Bitboard, magic bitboard, make/unmake, piece-square table, and negamax follow
+[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; perft
+and MVV-LVA already did. `brandobot_core` is this repo's PyO3 module name.

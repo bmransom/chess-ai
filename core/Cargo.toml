@@ -1,0 +1,20 @@
+[package]
+name = "brandobot_core"
+version = "0.1.0"
+edition = "2021"
+description = "Native chess engine core for brandobot: bitboards, evaluation, and search behind a PyO3 seam."
+license = "MIT"
+
+[lib]
+name = "brandobot_core"
+# cdylib: the Python extension module. rlib: lets `cargo test` exercise the
+# engine's pure-Rust logic without linking libpython.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = "0.24"
+
+[features]
+# maturin enables this when building the extension (see pyproject.toml); plain
+# `cargo test` leaves it off so the test binary links libpython and runs.
+extension-module = ["pyo3/extension-module"]
