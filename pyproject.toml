@@ -8,4 +8,4 @@ extend-exclude = ["docs", ".venv"]
 # transposition_table.py) from colliding with the like-named src/ modules.
 addopts = "--import-mode=importlib"
 testpaths = ["src/tests", "tests"]
-python_files = ["test_*.py", "board.py", "next_move.py", "transposition_table.py", "core_seam.py", "movegen_diff.py"]
+python_files = ["test_*.py", "board.py", "next_move.py", "transposition_table.py", "core_seam.py", "movegen_diff.py", "eval_parity.py"]

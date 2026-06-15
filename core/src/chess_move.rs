@@ -26,7 +26,7 @@ pub mod flag {
     pub const PROMOTION_BIT: u16 = 8;
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Move(pub u16);
 
 impl Move {

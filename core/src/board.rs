@@ -44,9 +44,14 @@ impl Board {
     }
 
     pub fn from_fen(fen: &str) -> Result<Board, String> {
+        // Lenient like python-chess: placement and side are required; castling,
+        // en passant, and the clocks default when omitted.
         let fields: Vec<&str> = fen.split_whitespace().collect();
-        if fields.len() < 4 {
-            return Err(format!("FEN needs at least 4 fields, got {}", fields.len()));
+        if fields.len() < 2 {
+            return Err(format!(
+                "FEN needs at least placement and side, got {}",
+                fields.len()
+            ));
         }
 
         let mut board = Board {
@@ -94,8 +99,9 @@ impl Board {
             other => return Err(format!("bad side to move '{other}'")),
         };
 
-        if fields[2] != "-" {
-            for symbol in fields[2].chars() {
+        let castling_field = fields.get(2).copied().unwrap_or("-");
+        if castling_field != "-" {
+            for symbol in castling_field.chars() {
                 board.castling_rights |= match symbol {
                     'K' => CASTLE_WK,
                     'Q' => CASTLE_WQ,
@@ -106,9 +112,12 @@ impl Board {
             }
         }
 
-        if fields[3] != "-" {
-            board.en_passant =
-                Some(square_from_uci(fields[3]).ok_or_else(|| format!("bad ep '{}'", fields[3]))?);
+        let en_passant_field = fields.get(3).copied().unwrap_or("-");
+        if en_passant_field != "-" {
+            board.en_passant = Some(
+                square_from_uci(en_passant_field)
+                    .ok_or_else(|| format!("bad ep '{en_passant_field}'"))?,
+            );
         }
 
         if let Some(text) = fields.get(4) {
@@ -219,6 +228,11 @@ impl Board {
     }
 
     #[inline]
+    pub fn piece_at(&self, square: Square) -> Option<Piece> {
+        self.squares[square as usize]
+    }
+
+    #[inline]
     pub fn side_to_move(&self) -> Color {
         self.side_to_move
     }
@@ -231,6 +245,16 @@ impl Board {
     #[inline]
     pub fn castling_rights(&self) -> u8 {
         self.castling_rights
+    }
+
+    #[inline]
+    pub fn zobrist(&self) -> u64 {
+        self.zobrist
+    }
+
+    #[inline]
+    pub fn halfmove_clock(&self) -> u16 {
+        self.halfmove_clock
     }
 
     pub fn king_square(&self, color: Color) -> Square {
