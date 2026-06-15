@@ -55,8 +55,8 @@ Searcher.
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | Crate scaffold + maturin + gate wiring (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | — |
-| Bitboard Board + make/unmake + Zobrist | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Crate scaffold + maturin + gate wiring |
-| Move generation + perft suite | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Bitboard Board + make/unmake + Zobrist |
+| Bitboard Board + make/unmake + Zobrist (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | Crate scaffold + maturin + gate wiring |
+| Move generation + perft suite (@branransom) | Validating | [rust-engine-core](specs/rust-engine-core/design.md) | Bitboard Board + make/unmake + Zobrist |
 | Evaluation, MoveSorter, TranspositionTable | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Move generation + perft suite |
 | Searcher (negamax + alpha-beta + quiescence + TT) | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Evaluation, MoveSorter, TranspositionTable |
 | UCI + Flask wrappers on `brandobot_core` | Planned | [rust-engine-core](specs/rust-engine-core/design.md) | Searcher (negamax + alpha-beta + quiescence + TT) |

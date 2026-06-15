@@ -13,14 +13,15 @@ else
 fi
 
 echo "== rust core: fmt + lint + test"
-( cd "$REPO/core" && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -q )
+# Release for the test step so the perft suite (millions of nodes) stays fast.
+( cd "$REPO/core" && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --release -q )
 
 echo "== rust core: build + install brandobot_core"
 # Build the extension and install it where pytest will import it. A project-local
 # venv gets an incremental `maturin develop`; CI (no venv) installs the package
 # with pip using the already-present maturin backend (--no-build-isolation).
 if [ -x "$REPO/.venv/bin/maturin" ]; then
-  VIRTUAL_ENV="$REPO/.venv" "$REPO/.venv/bin/maturin" develop --manifest-path "$REPO/core/Cargo.toml"
+  VIRTUAL_ENV="$REPO/.venv" "$REPO/.venv/bin/maturin" develop --release --manifest-path "$REPO/core/Cargo.toml"
 else
   "$PY" -m pip install -q --no-build-isolation --force-reinstall --no-deps "$REPO/core"
 fi
