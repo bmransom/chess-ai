@@ -1,7 +1,7 @@
 import brandobot_core
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 DEPTH = 3
 
@@ -15,6 +15,9 @@ searcher = brandobot_core.Searcher()
 
 class NextMoveRequest(BaseModel):
     fen: str
+    # How many plies of the decision tree to capture for diagnostics; clamped to
+    # the search depth by the core.
+    tree_depth: int = Field(default=1, ge=1, le=8)
 
     @field_validator("fen")
     @classmethod
@@ -36,7 +39,7 @@ def next_move():
         return jsonify({"errors": validation_errors(error)}), 422
 
     searcher.set_fen(body.fen)
-    move = searcher.next_move(DEPTH, capture_tree=True)
+    move = searcher.next_move(DEPTH, capture_tree=True, tree_depth=body.tree_depth)
     return jsonify(NextMoveResponse(move=move).model_dump())
 
 

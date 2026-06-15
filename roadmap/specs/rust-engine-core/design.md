@@ -48,13 +48,19 @@ brandobot_core.Searcher()
   .new_game()                          # reset Board, clear TranspositionTable  (UCI `ucinewgame`)
   .set_position(fen=None, moves=[...]) # startpos (fen=None) or a FEN, then apply UCI moves
   .set_fen(fen)                        # set position directly from a FEN
-  .next_move(depth, capture_tree=False) -> "g1f3"   # the best Move, UCI notation
+  .next_move(depth, capture_tree=False, tree_depth=1) -> "g1f3"  # best Move, UCI notation
   .fen() -> "..."                      # current position as FEN
   .transposition_table() -> [ {zobrist, best_move, depth, value, flag, age}, ... ]
   .decision_tree() -> dict | None      # the last search's tree, only if capture_tree was set
 
 brandobot_core.perft(fen, depth) -> int   # module function; movegen gate + benchmark
 ```
+
+The decision tree is a debug aid: when `capture_tree` is set, `next_move`
+records a tree `tree_depth` plies deep (clamped to the search depth) — each node
+is a move, its negamax value, and the reply tree beneath it. `POST /next_move`
+takes an optional `tree_depth`. Depth 1 (the default) is the root moves only;
+deeper trees re-search every node, so the value is bounded small.
 
 The UCI null move `(none)` is returned when no legal move exists (AC-1.3).
 

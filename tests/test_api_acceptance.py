@@ -83,6 +83,28 @@ def test_decision_tree_returned_after_search():
     assert "moves" in response.get_json()
 
 
+def test_decision_tree_depth_one_has_no_children():
+    client = app.test_client()
+    client.post("/next_move", json={"fen": chess.STARTING_FEN, "tree_depth": 1})
+    tree = client.get("/decision_tree").get_json()
+    assert tree["moves"]
+    assert all(node["children"] == [] for node in tree["moves"])
+
+
+def test_decision_tree_depth_two_expands_children():
+    client = app.test_client()
+    client.post("/next_move", json={"fen": chess.STARTING_FEN, "tree_depth": 2})
+    tree = client.get("/decision_tree").get_json()
+    assert any(node["children"] for node in tree["moves"])
+
+
+def test_invalid_tree_depth_returns_422():
+    response = app.test_client().post(
+        "/next_move", json={"fen": chess.STARTING_FEN, "tree_depth": 0}
+    )
+    assert response.status_code == 422
+
+
 def test_decision_tree_404_when_none_captured():
     searcher.new_game()
     response = app.test_client().get("/decision_tree")

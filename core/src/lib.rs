@@ -28,9 +28,30 @@ use tt::{Flag, TranspositionTable};
 /// The UCI null move, returned when no legal move exists.
 const NULL_MOVE: &str = "0000";
 
-/// A captured decision tree: the searched position's FEN and each root move's
-/// value. Populated only when `next_move` is asked to capture one.
-type DecisionTree = (String, Vec<(String, i32)>);
+/// A captured decision tree: the searched position's FEN and the root nodes.
+/// Populated only when `next_move` is asked to capture one.
+type DecisionTree = (String, Vec<CapturedNode>);
+
+/// One captured tree node, ready to serialize to the HTTP client.
+struct CapturedNode {
+    uci: String,
+    value: i32,
+    children: Vec<CapturedNode>,
+}
+
+impl CapturedNode {
+    fn from_tree(node: search::TreeNode) -> CapturedNode {
+        CapturedNode {
+            uci: node.mv.to_uci(),
+            value: node.value,
+            children: node
+                .children
+                .into_iter()
+                .map(CapturedNode::from_tree)
+                .collect(),
+        }
+    }
+}
 
 /// Searcher — owns a Board and a TranspositionTable and returns the best Move for
 /// the current position. The Python wrappers hold one per game.
@@ -117,20 +138,19 @@ impl Searcher {
 
     /// The best Move for the side to move, searched to `depth`, in UCI notation,
     /// or the null move when no legal move exists. When `capture_tree` is set,
-    /// also record the root moves and their values for `decision_tree`.
-    #[pyo3(signature = (depth, capture_tree=false))]
-    fn next_move(&mut self, depth: u32, capture_tree: bool) -> String {
+    /// also record a decision tree `tree_depth` plies deep (clamped to the search
+    /// depth) for `decision_tree`.
+    #[pyo3(signature = (depth, capture_tree=false, tree_depth=1))]
+    fn next_move(&mut self, depth: u32, capture_tree: bool, tree_depth: u32) -> String {
         let is_endgame = eval::is_endgame(&self.board);
         if capture_tree {
-            let scores = {
+            let plies = tree_depth.clamp(1, depth.max(1));
+            let nodes = {
                 let mut scout = search::Searcher::new(&mut self.transposition_table, is_endgame);
-                scout.root_scores(&mut self.board, depth as i32)
+                scout.capture_tree(&mut self.board, depth as i32, plies)
             };
-            let moves = scores
-                .iter()
-                .map(|(mv, value)| (mv.to_uci(), *value))
-                .collect();
-            self.last_decision_tree = Some((self.board.to_fen(), moves));
+            let captured = nodes.into_iter().map(CapturedNode::from_tree).collect();
+            self.last_decision_tree = Some((self.board.to_fen(), captured));
         }
         let mut searcher = search::Searcher::new(&mut self.transposition_table, is_endgame);
         match searcher.best_move(&mut self.board, depth as i32) {
@@ -140,23 +160,30 @@ impl Searcher {
     }
 
     /// The decision tree captured by the last `next_move(capture_tree=True)`, or
-    /// None when no search has captured one.
+    /// None when no search has captured one. Each move carries its value and the
+    /// reply tree beneath it.
     fn decision_tree<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
-        let Some((fen, moves)) = &self.last_decision_tree else {
+        let Some((fen, nodes)) = &self.last_decision_tree else {
             return Ok(None);
         };
         let root = PyDict::new(py);
         root.set_item("fen", fen)?;
-        let move_list = PyList::empty(py);
-        for (uci, value) in moves {
-            let node = PyDict::new(py);
-            node.set_item("move", uci)?;
-            node.set_item("value", value)?;
-            move_list.append(node)?;
-        }
-        root.set_item("moves", move_list)?;
+        root.set_item("moves", build_tree(py, nodes)?)?;
         Ok(Some(root))
     }
+}
+
+/// Build a nested move list from captured tree nodes.
+fn build_tree<'py>(py: Python<'py>, nodes: &[CapturedNode]) -> PyResult<Bound<'py, PyList>> {
+    let list = PyList::empty(py);
+    for node in nodes {
+        let dict = PyDict::new(py);
+        dict.set_item("move", &node.uci)?;
+        dict.set_item("value", node.value)?;
+        dict.set_item("children", build_tree(py, &node.children)?)?;
+        list.append(dict)?;
+    }
+    Ok(list)
 }
 
 /// The transposition-table flag name, matching the original's `Flag.name`.

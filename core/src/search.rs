@@ -17,6 +17,14 @@ const MATE: i32 = 99999;
 /// Quiescence stops descending captures below this depth.
 const QUIESCENCE_FLOOR: i32 = -5;
 
+/// A node in a captured decision tree: a move, its negamax value, and the reply
+/// tree beneath it (empty at the configured leaf depth).
+pub struct TreeNode {
+    pub mv: Move,
+    pub value: i32,
+    pub children: Vec<TreeNode>,
+}
+
 pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
     is_endgame: bool,
@@ -44,19 +52,34 @@ impl<'a> Searcher<'a> {
         })
     }
 
-    /// Each root move paired with its negamax value — the data behind the
-    /// decision-tree debug endpoint. Each move is searched with a full window,
-    /// so every score is exact.
-    pub fn root_scores(&mut self, board: &mut Board, depth: i32) -> Vec<(Move, i32)> {
+    /// Capture a decision tree `tree_depth` plies deep — the data behind the
+    /// decision-tree debug endpoint. Each node pairs a move with its negamax
+    /// value at the remaining search depth (full window, so the score is exact);
+    /// children expand the reply tree one ply further. Debug-only and re-searches
+    /// every node, so keep `tree_depth` small.
+    pub fn capture_tree(
+        &mut self,
+        board: &mut Board,
+        search_depth: i32,
+        tree_depth: u32,
+    ) -> Vec<TreeNode> {
+        if tree_depth == 0 {
+            return Vec::new();
+        }
         let moves = prioritize_legal_moves(board, self.is_endgame);
-        let mut scores = Vec::with_capacity(moves.len());
+        let mut nodes = Vec::with_capacity(moves.len());
         for mv in moves {
             let undo = board.make_move(mv);
-            let (_, child) = self.negamax(board, depth - 1, -MATE, MATE);
+            let (_, child_value) = self.negamax(board, search_depth - 1, -MATE, MATE);
+            let children = self.capture_tree(board, search_depth - 1, tree_depth - 1);
             board.unmake_move(mv, undo);
-            scores.push((mv, -child));
+            nodes.push(TreeNode {
+                mv,
+                value: -child_value,
+                children,
+            });
         }
-        scores
+        nodes
     }
 
     fn negamax(
