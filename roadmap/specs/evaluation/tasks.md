@@ -41,6 +41,12 @@ The progress stream showed active move completion throughout the match.
 - **2.2 Measure mobility.** Match the candidate against the Wave 1 build; record the
   Elo delta; keep the term only if it helps. *Gate: AC-6.1.*
 
+**Wave 2 measurement.** Candidate mobility weights `mg N/B/R/Q = 4/4/2/1`,
+`eg N/B/R/Q = 4/5/4/2`, against Wave 1 commit `01b4f15`, with engine stderr
+suppressed, `--games 16 --depth 4 --max-moves 80 --progress game`:
+`engine1 vs engine2: +1 -1 =14, 50.0%, Elo -0 ± 60`. The term did not show a
+gain and was dropped; no mobility code is retained.
+
 ## Wave 3 — King safety
 
 - **3.1 King-safety term.** Score the pawn shield and the attackers on the king ring,
