@@ -47,6 +47,8 @@ suppressed, `--games 16 --depth 4 --max-moves 80 --progress game`:
 `engine1 vs engine2: +1 -1 =14, 50.0%, Elo -0 ± 60`. The term did not show a
 gain and was dropped; no mobility code is retained.
 
+**Wave 2 gate.** `scripts/check-fast.sh` PASS (2026-06-17).
+
 ## Wave 3 — King safety
 
 - **3.1 King-safety term.** Score the pawn shield and the attackers on the king ring,
@@ -54,6 +56,14 @@ gain and was dropped; no mobility code is retained.
   AC-1.4–1.5 still hold.*
 - **3.2 Measure king safety.** Match against the Wave 2 build; record the Elo delta.
   *Gate: AC-6.1.*
+
+**Wave 3 measurement.** Candidate king-safety weights `shield = +12 mg per pawn`,
+`ring attack mg P/N/B/R/Q = 4/10/10/14/24`, against pre-king-safety commit
+`180f875`, with engine stderr suppressed, `--games 16 --depth 4 --max-moves 80
+--progress game`: `engine1 vs engine2: +2 -1 =13, 53.1%, Elo +22 ± 73`.
+The signal is weak but positive, so the term is retained.
+
+**Wave 3 gate.** `scripts/check-fast.sh` PASS (2026-06-17).
 
 ## Wave 4 — Pawn structure
 

@@ -6,11 +6,17 @@
 
 use std::sync::OnceLock;
 
+use crate::attacks;
 use crate::board::Board;
-use crate::types::{pop_lsb, Color, PieceType, Square, NUM_COLORS, NUM_PIECE_TYPES};
+use crate::types::{
+    file_of, make_square, pop_lsb, rank_of, square_bb, Bitboard, Color, PieceType, Square,
+    NUM_COLORS, NUM_PIECE_TYPES,
+};
 
 const PHASE_MAX: i32 = 24;
 const PHASE_VALUES: [i32; NUM_PIECE_TYPES] = [0, 1, 1, 2, 4, 0];
+const KING_SHIELD_MG: i32 = 12;
+const KING_RING_ATTACK_MG: [i32; NUM_PIECE_TYPES] = [4, 10, 10, 14, 24, 0];
 
 pub const MG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [82, 337, 365, 477, 1025, 0];
 pub const EG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [94, 281, 297, 512, 936, 0];
@@ -274,9 +280,76 @@ fn material_placement(board: &Board) -> Score {
     total
 }
 
+fn attack_map(piece: PieceType, color: Color, square: Square, occupancy: Bitboard) -> Bitboard {
+    match piece {
+        PieceType::Pawn => attacks::pawn_attacks(color, square),
+        PieceType::Knight => attacks::knight_attacks(square),
+        PieceType::Bishop => attacks::bishop_attacks(square, occupancy),
+        PieceType::Rook => attacks::rook_attacks(square, occupancy),
+        PieceType::Queen => attacks::queen_attacks(square, occupancy),
+        PieceType::King => attacks::king_attacks(square),
+    }
+}
+
+fn pawn_shield_mask(color: Color, king: Square) -> Bitboard {
+    let shield_rank = match color {
+        Color::White => rank_of(king).checked_add(1),
+        Color::Black => rank_of(king).checked_sub(1),
+    };
+    let Some(rank) = shield_rank else {
+        return 0;
+    };
+
+    let file = file_of(king) as i8;
+    let mut mask = 0;
+    for df in -1..=1 {
+        let shield_file = file + df;
+        if (0..=7).contains(&shield_file) {
+            mask |= square_bb(make_square(shield_file as u8, rank));
+        }
+    }
+    mask
+}
+
+fn king_ring_pressure(board: &Board, attacker: Color, ring: Bitboard) -> i32 {
+    let mut pressure = 0;
+    let occupancy = board.occupied();
+    for piece in PieceType::ALL {
+        let weight = KING_RING_ATTACK_MG[piece.index()];
+        if weight == 0 {
+            continue;
+        }
+        let mut bitboard = board.pieces(attacker, piece);
+        while bitboard != 0 {
+            let square = pop_lsb(&mut bitboard);
+            let attacked_ring = attack_map(piece, attacker, square, occupancy) & ring;
+            pressure += attacked_ring.count_ones() as i32 * weight;
+        }
+    }
+    pressure
+}
+
+fn king_safety(board: &Board) -> Score {
+    let mut total = Score::default();
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let king = board.king_square(color);
+        let shield = (pawn_shield_mask(color, king) & board.pieces(color, PieceType::Pawn))
+            .count_ones() as i32
+            * KING_SHIELD_MG;
+        let pressure = king_ring_pressure(board, color.opponent(), attacks::king_attacks(king));
+        total.mg += (shield - pressure) * sign;
+    }
+    total
+}
+
 /// Absolute (white-positive) evaluation: tapered material plus piece-square bonus.
 pub fn evaluate(board: &Board) -> i32 {
-    material_placement(board).tapered(game_phase(board))
+    let mut total = material_placement(board);
+    let king_safety = king_safety(board);
+    total.mg += king_safety.mg;
+    total.eg += king_safety.eg;
+    total.tapered(game_phase(board))
 }
 
 #[cfg(test)]
@@ -308,5 +381,22 @@ mod tests {
         let board = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
 
         assert_eq!(evaluate(&board), 307);
+    }
+
+    #[test]
+    fn king_safety_rewards_pawn_shield() {
+        let sheltered = Board::from_fen("6k1/8/8/8/8/8/5PPP/6K1 w - - 0 1").unwrap();
+        let exposed = Board::from_fen("6k1/8/8/8/5PPP/8/8/6K1 w - - 0 1").unwrap();
+
+        assert!(king_safety(&sheltered).mg > king_safety(&exposed).mg);
+        assert_eq!(king_safety(&sheltered).eg, 0);
+    }
+
+    #[test]
+    fn king_safety_penalizes_attacks_on_king_ring() {
+        let sheltered = Board::from_fen("6k1/8/8/8/8/8/5PPP/6K1 w - - 0 1").unwrap();
+        let attacked = Board::from_fen("6k1/8/8/8/8/8/5PPP/r5K1 w - - 0 1").unwrap();
+
+        assert!(king_safety(&attacked).mg < king_safety(&sheltered).mg);
     }
 }
