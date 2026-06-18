@@ -114,5 +114,5 @@ kept only if it helps.
 | Tapered foundation (PeSTO) + retire `is_endgame` (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Iterative deepening, Strength measurement |
 | Mobility (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
 | King safety (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
-| Pawn structure | Planned | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
+| Pawn structure (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
 | Docs + cumulative measurement | Planned | [evaluation](specs/evaluation/design.md) | Mobility, King safety, Pawn structure |

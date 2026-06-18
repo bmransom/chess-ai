@@ -73,6 +73,15 @@ The signal is weak but positive, so the term is retained.
 - **4.2 Measure pawn structure.** Match against the Wave 3 build; record the Elo
   delta. *Gate: AC-6.1.*
 
+**Wave 4 measurement.** Candidate pawn-structure weights `doubled mg/eg = 10/12`,
+`isolated mg/eg = 12/10`, `passed mg by rank = 0/5/10/18/30/48/72/0`,
+`passed eg by rank = 0/12/24/40/64/96/140/0`, against pre-pawn-structure commit
+`ae97dbd`, with engine stderr suppressed, `--games 16 --depth 4 --max-moves 80
+--progress game`: `engine1 vs engine2: +1 -1 =14, 50.0%, Elo -0 ± 60`.
+The term did not show a gain and was dropped; no pawn-structure code is retained.
+
+**Wave 4 gate.** `scripts/check-fast.sh` PASS (2026-06-18).
+
 ## Wave 5 — Docs & cumulative measurement
 
 - **5.1 Cumulative match.** Run the full candidate against `main`; record the total
