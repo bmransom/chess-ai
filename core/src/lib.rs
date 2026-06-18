@@ -142,17 +142,16 @@ impl Searcher {
     /// depth) for `decision_tree`.
     #[pyo3(signature = (depth, capture_tree=false, tree_depth=1))]
     fn next_move(&mut self, depth: u32, capture_tree: bool, tree_depth: u32) -> String {
-        let is_endgame = eval::is_endgame(&self.board);
         if capture_tree {
             let plies = tree_depth.clamp(1, depth.max(1));
             let nodes = {
-                let mut scout = search::Searcher::new(&mut self.transposition_table, is_endgame);
+                let mut scout = search::Searcher::new(&mut self.transposition_table);
                 scout.capture_tree(&mut self.board, depth as i32, plies, 0)
             };
             let captured = nodes.into_iter().map(CapturedNode::from_tree).collect();
             self.last_decision_tree = Some((self.board.to_fen(), captured));
         }
-        let mut searcher = search::Searcher::new(&mut self.transposition_table, is_endgame);
+        let mut searcher = search::Searcher::new(&mut self.transposition_table);
         match searcher.best_move(&mut self.board, depth as i32) {
             Some(mv) => mv.to_uci(),
             None => NULL_MOVE.to_string(),
@@ -177,7 +176,6 @@ impl Searcher {
         black_increment_ms: u64,
         moves_to_go: Option<u32>,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let is_endgame = eval::is_endgame(&self.board);
         let limits = search::SearchLimits {
             max_depth,
             move_time_ms,
@@ -188,7 +186,7 @@ impl Searcher {
             moves_to_go,
         };
         let result = {
-            let mut searcher = search::Searcher::new(&mut self.transposition_table, is_endgame);
+            let mut searcher = search::Searcher::new(&mut self.transposition_table);
             searcher.search(&mut self.board, &limits, std::time::Instant::now())
         };
 
@@ -288,20 +286,11 @@ fn legal_moves(fen: &str) -> PyResult<Vec<String>> {
         .collect())
 }
 
-/// The absolute (white-positive) static evaluation of `fen`, matching
-/// `Board.value()`. Used by the eval-parity test.
+/// The absolute (white-positive) static evaluation of `fen`.
 #[pyfunction]
 fn evaluate(fen: &str) -> PyResult<i64> {
     let board = Board::from_fen(fen).map_err(PyValueError::new_err)?;
-    let endgame = eval::is_endgame(&board);
-    Ok(eval::value(&board, endgame) as i64)
-}
-
-/// Whether `fen` is an endgame, matching `Board.is_endgame`.
-#[pyfunction]
-fn is_endgame(fen: &str) -> PyResult<bool> {
-    let board = Board::from_fen(fen).map_err(PyValueError::new_err)?;
-    Ok(eval::is_endgame(&board))
+    Ok(eval::evaluate(&board) as i64)
 }
 
 /// Whether `fen` parses as a legal position — for boundary validation.
@@ -317,7 +306,6 @@ fn brandobot_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(perft, module)?)?;
     module.add_function(wrap_pyfunction!(legal_moves, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate, module)?)?;
-    module.add_function(wrap_pyfunction!(is_endgame, module)?)?;
     module.add_function(wrap_pyfunction!(is_valid_fen, module)?)?;
     Ok(())
 }

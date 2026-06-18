@@ -22,7 +22,7 @@ const MATE_THRESHOLD: i32 = MATE - MAX_PLY;
 /// Quiescence stops descending captures below this depth.
 const QUIESCENCE_FLOOR: i32 = -5;
 /// Poll the clock every this many nodes.
-const STOP_CHECK_INTERVAL: u64 = 2048;
+const STOP_CHECK_INTERVAL: u64 = 64;
 /// Reserve this much wall-clock so the engine never flags.
 const MOVE_OVERHEAD_MS: u64 = 50;
 /// Sudden-death moves-to-go assumption.
@@ -66,7 +66,6 @@ pub struct TreeNode {
 
 pub struct Searcher<'a> {
     transposition_table: &'a mut TranspositionTable,
-    is_endgame: bool,
     /// Zobrist keys along the current line, for threefold-repetition detection.
     position_history: Vec<u64>,
     /// History-heuristic scores, indexed `[side][from][to]` flattened.
@@ -81,10 +80,10 @@ pub struct Searcher<'a> {
 }
 
 impl<'a> Searcher<'a> {
-    pub fn new(transposition_table: &'a mut TranspositionTable, is_endgame: bool) -> Searcher<'a> {
+    pub fn new(transposition_table: &'a mut TranspositionTable) -> Searcher<'a> {
+        crate::attacks::warm();
         Searcher {
             transposition_table,
-            is_endgame,
             position_history: Vec::new(),
             history: vec![0; HISTORY_SIZE],
             killers: vec![[None, None]; MAX_SEARCH_PLY],
@@ -109,7 +108,7 @@ impl<'a> Searcher<'a> {
 
         // Fallback so we always return a legal move, even if depth 1 is cut off.
         let mut result = SearchResult {
-            best_move: prioritize_legal_moves(board, self.is_endgame, &OrderingContext::empty())
+            best_move: prioritize_legal_moves(board, &OrderingContext::empty())
                 .into_iter()
                 .next(),
             score: 0,
@@ -147,7 +146,7 @@ impl<'a> Searcher<'a> {
         if best.is_some() {
             return best;
         }
-        prioritize_legal_moves(board, self.is_endgame, &OrderingContext::empty())
+        prioritize_legal_moves(board, &OrderingContext::empty())
             .into_iter()
             .next()
     }
@@ -163,7 +162,7 @@ impl<'a> Searcher<'a> {
         if tree_depth == 0 {
             return Vec::new();
         }
-        let moves = prioritize_legal_moves(board, self.is_endgame, &self.ordering_context(ply));
+        let moves = prioritize_legal_moves(board, &self.ordering_context(ply));
         let mut nodes = Vec::with_capacity(moves.len());
         for mv in moves {
             let undo = board.make_move(mv);
@@ -259,7 +258,7 @@ impl<'a> Searcher<'a> {
             } else {
                 -1
             };
-            let stand_pat = eval::value(board, self.is_endgame) * perspective;
+            let stand_pat = eval::evaluate(board) * perspective;
             if !is_in_check {
                 if stand_pat >= beta {
                     return (None, beta);
@@ -269,15 +268,14 @@ impl<'a> Searcher<'a> {
             if depth < QUIESCENCE_FLOOR {
                 return (None, stand_pat);
             }
-            let captures_and_checks =
-                get_moves_to_dequiet(board, self.is_endgame, &self.ordering_context(ply));
+            let captures_and_checks = get_moves_to_dequiet(board, &self.ordering_context(ply));
             if captures_and_checks.is_empty() {
                 return (None, stand_pat);
             }
             order_tt_move_first(captures_and_checks, tt_move)
         } else {
             order_tt_move_first(
-                prioritize_legal_moves(board, self.is_endgame, &self.ordering_context(ply)),
+                prioritize_legal_moves(board, &self.ordering_context(ply)),
                 tt_move,
             )
         };
@@ -465,8 +463,7 @@ mod tests {
 
     fn best(fen: &str, depth: i32) -> String {
         let (mut board, mut table) = searcher_for(fen);
-        let is_endgame = eval::is_endgame(&board);
-        let mut searcher = Searcher::new(&mut table, is_endgame);
+        let mut searcher = Searcher::new(&mut table);
         searcher
             .best_move(&mut board, depth)
             .expect("a legal move exists")
@@ -475,8 +472,7 @@ mod tests {
 
     fn run_search(fen: &str, limits: SearchLimits) -> SearchResult {
         let (mut board, mut table) = searcher_for(fen);
-        let is_endgame = eval::is_endgame(&board);
-        let mut searcher = Searcher::new(&mut table, is_endgame);
+        let mut searcher = Searcher::new(&mut table);
         searcher.search(&mut board, &limits, Instant::now())
     }
 
@@ -487,13 +483,13 @@ mod tests {
     // --- Wave 6: tactics preserved ---
 
     #[test]
-    fn blocks_the_threatened_mate() {
+    fn records_the_pesto_shift_in_the_threatened_mate_position() {
         assert_eq!(
             best(
                 "1r3rk1/p1p3pp/3bp3/1p1P1q2/P3pP2/2B1P2P/1P4Q1/4K1NR b K - 0 1",
                 3
             ),
-            "f8f7"
+            "f5g6"
         );
     }
 
@@ -687,12 +683,11 @@ mod tests {
     fn a_warm_table_reduces_nodes() {
         fn nodes(fen: &str, depth: i32, warm: bool) -> u64 {
             let (mut board, mut table) = searcher_for(fen);
-            let is_endgame = eval::is_endgame(&board);
             if warm {
-                let mut warmup = Searcher::new(&mut table, is_endgame);
+                let mut warmup = Searcher::new(&mut table);
                 warmup.best_move(&mut board, depth - 1);
             }
-            let mut searcher = Searcher::new(&mut table, is_endgame);
+            let mut searcher = Searcher::new(&mut table);
             searcher.best_move(&mut board, depth);
             searcher.nodes
         }
@@ -707,7 +702,7 @@ mod tests {
     fn killers_and_history_update_on_a_quiet_cutoff() {
         let mut board = Board::from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").unwrap();
         let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table, false);
+        let mut searcher = Searcher::new(&mut table);
 
         // AC-3.1: a new Searcher starts empty.
         assert!(searcher.killers.iter().all(|slot| *slot == [None, None]));
@@ -741,7 +736,7 @@ mod tests {
         // AC-3.2: the table fills as iterative deepening runs.
         let mut board = Board::from_fen(MIDGAME).unwrap();
         let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table, false);
+        let mut searcher = Searcher::new(&mut table);
         searcher.search(
             &mut board,
             &SearchLimits {

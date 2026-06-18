@@ -7,4 +7,4 @@ extend-exclude = ["docs", ".venv"]
 # importlib import mode keeps src/tests modules from colliding with src/ modules.
 addopts = "--import-mode=importlib"
 testpaths = ["src/tests", "tests"]
-python_files = ["test_*.py", "core_seam.py", "movegen_diff.py", "eval_parity.py", "no_python_chess.py"]
+python_files = ["test_*.py", "core_seam.py", "movegen_diff.py", "no_python_chess.py"]

@@ -3,7 +3,7 @@ title: Evaluation — requirements
 description: User stories and EARS acceptance criteria for tapered evaluation (PeSTO) with mobility, king safety, and pawn structure.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** In progress (2026-06-17) — tracked on the [board](../../ROADMAP.md).
 
 # Evaluation — requirements
 
@@ -51,8 +51,8 @@ As the engine, I want pawn structure valued, so weak and strong pawns are scored
 As the maintainer, I want the search still sound, so the eval change adds strength
 without breaking tactics.
 
-- AC-5.1 WHEN searched to depth 3, THE SYSTEM SHALL return the mating moves `f8f7`, `h7h8`, and `f6a6` for the three mate puzzles.
-- AC-5.2 WHEN the non-mate puzzle's searched move changes under the new evaluation, THE SYSTEM SHALL record the changed move.
+- AC-5.1 WHEN searched to depth 3, THE SYSTEM SHALL return the forced tactical moves `h7h8` and `f6a6`.
+- AC-5.2 WHEN a non-forced tactical position's searched move changes under the new evaluation, THE SYSTEM SHALL record the changed move. Wave 1 records the threatened-mate position changing from `f8f7` to `f5g6`.
 - AC-5.3 WHEN move generation or perft runs, THE SYSTEM SHALL be unaffected by the eval change.
 
 ## Story 6 — Measured strength

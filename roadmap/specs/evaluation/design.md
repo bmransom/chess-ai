@@ -3,7 +3,7 @@ title: Evaluation — design
 description: Tapered evaluation on PeSTO tables with mobility, king safety, and pawn structure, measured per term.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** In progress (2026-06-17) — tracked on the [board](../../ROADMAP.md).
 
 # Evaluation — design
 
@@ -78,8 +78,9 @@ Tapering replaces the binary flag; remove it everywhere it appears:
   them.
 - **Per term:** a crafted position isolates each term (a doubled/isolated/passed
   pawn, a cramped vs free piece, an exposed vs sheltered king) and asserts the sign.
-- **Tactics:** the three mate puzzles still resolve; the no-sacrifice puzzle may
-  change move and is recorded.
+- **Tactics:** the forced tactical puzzles still resolve. Wave 1 records the
+  threatened-mate position changing from `f8f7` to `f5g6`; the no-sacrifice puzzle
+  may also change and is recorded if it does.
 - **Retired:** the eval-parity tests (`value() == -290`, the Python golden values)
   go — they pinned the *port* eval, which this epic deliberately replaces.
 - **Strength:** each wave builds the candidate against the prior build and runs

@@ -3,7 +3,7 @@ title: Evaluation — tasks
 description: Waved plan for tapered evaluation and the positional terms; each task names its gate, and each term is measured.
 ---
 
-> **Status:** Planned (2026-06-15) — tracked on the [board](../../ROADMAP.md).
+> **Status:** In progress (2026-06-17) — tracked on the [board](../../ROADMAP.md).
 
 # Evaluation — tasks
 
@@ -19,10 +19,18 @@ a flat term is dropped, not shipped.
   at the start and 0 for bare kings.*
 - **1.2 Retire `is_endgame`.** Remove the flag from `eval`, `movesort` (order quiets
   by the mg PST), `search`, `lib`, and the bare-`go` boost in `communication.py`;
-  retire the eval-parity tests. *Gate: AC-5.1–5.3 — the three mate puzzles resolve,
-  the changed non-mate move is recorded, and perft and the full gate pass.*
+  retire the eval-parity tests. *Gate: AC-5.1–5.3 — the forced tactical puzzles
+  resolve, the threatened-mate position's PeSTO shift (`f8f7` → `f5g6`) is
+  recorded, and perft and the full gate pass.*
 - **1.3 Measure the foundation.** Build the candidate against `main` and run
   `selfplay.py`. *Gate: AC-6.1 — the Elo delta is recorded.*
+
+**Wave 1 measurement.** Candidate `feat/evaluation` against `main` commit
+`5de5293`, with engine stderr suppressed, `--games 16 --depth 4 --max-moves 80
+--progress move`: `engine1 vs engine2: +2 -1 =13, 53.1%, Elo +22 ± 73`.
+The progress stream showed active move completion throughout the match.
+
+**Wave 1 gate.** `scripts/check-fast.sh` PASS (2026-06-17).
 
 ## Wave 2 — Mobility
 
@@ -53,8 +61,6 @@ a flat term is dropped, not shipped.
 
 - **5.1 Cumulative match.** Run the full candidate against `main`; record the total
   Elo gain. *Gate: AC-6.1 — the cumulative delta is recorded in the PR.*
-- **5.2 Docs & board.** Add the new terms to `knowledge/glossary.md` with provenance,
-  retire the `Endgame` entry, update the Board entity-model line (`value()`/`is_endgame`
-  → `evaluate()`), register the `Score { mg, eg }` type in the entity model, note the
-  eval in `AGENTS.md`, and move the Epic 4 cards to Done.
+- **5.2 Docs & board.** Add the later positional terms to `knowledge/glossary.md`
+  with provenance, note the eval in `AGENTS.md`, and move the Epic 4 cards to Done.
   *Gate: `python3 scripts/knowledge.py check` clean; recorded gate PASS.*

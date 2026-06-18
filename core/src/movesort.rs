@@ -3,14 +3,14 @@
 //! Full search order: the transposition-table move (placed first by the search),
 //! then checks, captures by MVV-LVA, and quiet moves. The quiet group leads with
 //! the ply's killer moves, then sorts by history score, with the piece-square
-//! change as the tiebreak. `is_endgame` is the frozen root value.
+//! change as the tiebreak.
 
 use std::cmp::Reverse;
 
 use crate::attacks::is_square_attacked;
 use crate::board::Board;
 use crate::chess_move::Move;
-use crate::eval::{position_value, PIECE_VALUES};
+use crate::eval::{mg_position_value, PIECE_VALUES};
 use crate::movegen::generate_legal;
 use crate::types::{Color, PieceType, Square};
 
@@ -65,19 +65,13 @@ fn capture_value(board: &Board, mv: Move) -> i32 {
     PIECE_VALUES[victim.index()] - PIECE_VALUES[aggressor.index()]
 }
 
-fn position_value_change(
-    piece: PieceType,
-    color: Color,
-    from: Square,
-    to: Square,
-    is_endgame: bool,
-) -> i32 {
-    position_value(piece, color, to, is_endgame) - position_value(piece, color, from, is_endgame)
+fn position_value_change(piece: PieceType, color: Color, from: Square, to: Square) -> i32 {
+    mg_position_value(piece, color, to) - mg_position_value(piece, color, from)
 }
 
 /// The ordering score for a non-MVV-LVA move: promotion is a queen's worth;
 /// otherwise capture gain plus the piece-square change.
-pub fn evaluate_move_value(board: &Board, mv: Move, is_endgame: bool) -> i32 {
+pub fn evaluate_move_value(board: &Board, mv: Move) -> i32 {
     if mv.promotion().is_some() {
         return PIECE_VALUES[PieceType::Queen.index()];
     }
@@ -87,23 +81,18 @@ pub fn evaluate_move_value(board: &Board, mv: Move, is_endgame: bool) -> i32 {
     }
     let color = board.side_to_move();
     let piece = board.piece_at(mv.from()).expect("mover present").piece_type;
-    value += position_value_change(piece, color, mv.from(), mv.to(), is_endgame);
+    value += position_value_change(piece, color, mv.from(), mv.to());
     value
 }
 
-fn sort_by_value(board: &Board, mut moves: Vec<Move>, is_endgame: bool) -> Vec<Move> {
-    moves.sort_by_key(|&mv| Reverse(evaluate_move_value(board, mv, is_endgame)));
+fn sort_by_value(board: &Board, mut moves: Vec<Move>) -> Vec<Move> {
+    moves.sort_by_key(|&mv| Reverse(evaluate_move_value(board, mv)));
     moves
 }
 
 /// Order quiet moves: killers first (slot 0 before slot 1), then by history score
 /// descending, with the piece-square change as the tiebreak.
-fn sort_quiets(
-    board: &Board,
-    mut quiets: Vec<Move>,
-    is_endgame: bool,
-    context: &OrderingContext,
-) -> Vec<Move> {
+fn sort_quiets(board: &Board, mut quiets: Vec<Move>, context: &OrderingContext) -> Vec<Move> {
     let color = board.side_to_move();
     quiets.sort_by_key(|&mv| {
         let killer_rank = if context.killers[0] == Some(mv) {
@@ -114,7 +103,7 @@ fn sort_quiets(
             2
         };
         let history = context.history[history_index(color, mv)];
-        let value = evaluate_move_value(board, mv, is_endgame);
+        let value = evaluate_move_value(board, mv);
         (killer_rank, Reverse(history), Reverse(value))
     });
     quiets
@@ -160,34 +149,26 @@ fn group(board: &mut Board, moves: &[Move]) -> (Vec<Move>, Vec<Move>, Vec<Move>)
 }
 
 /// Legal moves ordered checks → captures (MVV-LVA) → quiet (killers, history, value).
-pub fn prioritize_legal_moves(
-    board: &mut Board,
-    is_endgame: bool,
-    context: &OrderingContext,
-) -> Vec<Move> {
+pub fn prioritize_legal_moves(board: &mut Board, context: &OrderingContext) -> Vec<Move> {
     let moves = generate_legal(board);
     let (checks, captures, quiets) = group(board, &moves);
     let mut ordered = Vec::with_capacity(moves.len());
-    ordered.extend(sort_by_value(board, checks, is_endgame));
+    ordered.extend(sort_by_value(board, checks));
     ordered.extend(sort_mvv_lva(board, captures));
-    ordered.extend(sort_quiets(board, quiets, is_endgame, context));
+    ordered.extend(sort_quiets(board, quiets, context));
     ordered
 }
 
 /// Moves searched in quiescence: every evasion when in check, else checks +
 /// captures.
-pub fn get_moves_to_dequiet(
-    board: &mut Board,
-    is_endgame: bool,
-    context: &OrderingContext,
-) -> Vec<Move> {
+pub fn get_moves_to_dequiet(board: &mut Board, context: &OrderingContext) -> Vec<Move> {
     if in_check(board) {
-        return prioritize_legal_moves(board, is_endgame, context);
+        return prioritize_legal_moves(board, context);
     }
     let moves = generate_legal(board);
     let (checks, captures, _quiets) = group(board, &moves);
     let mut ordered = Vec::with_capacity(checks.len() + captures.len());
-    ordered.extend(sort_by_value(board, checks, is_endgame));
+    ordered.extend(sort_by_value(board, checks));
     ordered.extend(sort_mvv_lva(board, captures));
     ordered
 }
@@ -201,7 +182,7 @@ mod tests {
         let mut board =
             Board::from_fen("rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 0 1")
                 .unwrap();
-        let ordered = prioritize_legal_moves(&mut board, false, &OrderingContext::empty());
+        let ordered = prioritize_legal_moves(&mut board, &OrderingContext::empty());
         let ranks: Vec<u8> = ordered
             .iter()
             .map(|&mv| {
@@ -249,7 +230,7 @@ mod tests {
             killers: [Some(killer), None],
             history: &EMPTY_HISTORY,
         };
-        let ordered = sort_quiets(&board, quiets, false, &context);
+        let ordered = sort_quiets(&board, quiets, &context);
         assert_eq!(ordered[0], killer);
     }
 
@@ -263,7 +244,7 @@ mod tests {
             killers: [None, None],
             history: &history,
         };
-        let ordered = sort_quiets(&board, quiets, false, &context);
+        let ordered = sort_quiets(&board, quiets, &context);
         assert_eq!(ordered[0], favored);
     }
 }
