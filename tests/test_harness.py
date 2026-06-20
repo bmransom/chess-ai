@@ -12,6 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
 import epd_suite  # noqa: E402
+import match_core  # noqa: E402
 import selfplay  # noqa: E402
 
 
@@ -102,3 +103,49 @@ def test_selfplay_reports_move_progress_before_and_after_engine_calls():
     assert lines[1].startswith("game 3 ply 1 white played e2e4 in ")
     assert lines[2] == "game 3 ply 2 black thinking..."
     assert lines[3].startswith("game 3 ply 2 black played e7e5 in ")
+
+
+def test_adjudicator_resigns_a_won_position():
+    adjudicator = match_core.Adjudicator(resign_cp=900, resign_plies=3)
+    assert adjudicator.update(10, 1000) is None
+    assert adjudicator.update(11, 1000) is None
+    assert adjudicator.update(12, 1000) == "1-0"
+
+
+def test_adjudicator_resigns_for_black():
+    adjudicator = match_core.Adjudicator(resign_cp=900, resign_plies=2)
+    assert adjudicator.update(10, -1000) is None
+    assert adjudicator.update(11, -1000) == "0-1"
+
+
+def test_adjudicator_draws_a_dead_equal_position():
+    adjudicator = match_core.Adjudicator(draw_cp=8, draw_after_ply=4, draw_plies=3)
+    assert adjudicator.update(3, 0) is None  # before draw_after_ply: does not count
+    assert adjudicator.update(4, 0) is None
+    assert adjudicator.update(5, 0) is None
+    assert adjudicator.update(6, 0) == "1/2-1/2"
+
+
+def test_adjudicator_run_resets_on_a_swing():
+    adjudicator = match_core.Adjudicator(resign_cp=900, resign_plies=3)
+    adjudicator.update(10, 1000)
+    adjudicator.update(11, 1000)
+    assert adjudicator.update(12, 50) is None  # the swing back clears the run
+    assert adjudicator.update(13, 1000) is None
+
+
+def test_play_game_is_reproducible_after_ucinewgame():
+    command = [sys.executable, str(REPO_ROOT / "src" / "main.py")]
+    limit = match_core.make_limit(None, None, nodes=3000)
+    with (
+        chess.engine.SimpleEngine.popen_uci(command) as white,
+        chess.engine.SimpleEngine.popen_uci(command) as black,
+    ):
+        first = match_core.play_game(
+            white, black, chess.STARTING_FEN, limit, max_moves=12, game=("g", 1)
+        )
+        second = match_core.play_game(
+            white, black, chess.STARTING_FEN, limit, max_moves=12, game=("g", 2)
+        )
+    assert first.moves, "the engines played at least one move"
+    assert first.moves == second.moves  # ucinewgame clears the TT, so the game repeats
