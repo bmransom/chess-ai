@@ -108,14 +108,15 @@ composed function; the gain is measured with the strength harness.
 
 Replace material-plus-PST with a tapered evaluation on PeSTO's tuned tables, then
 add mobility, king safety, and pawn structure. Retire the binary `is_endgame`
-flag. Each term is measured against the prior build with the strength harness;
-term-retention decisions stay open until the harness method is fair enough to
-support them.
+flag. The fair-match SPRT measured the full positional eval at **+26.5 Elo
+[+6.9, +46.2]** over PeSTO-only ([report](specs/evaluation/fair-match-measurement.md)),
+so the terms are kept; isolating each at strict bounds is impractical at this
+engine's speed, so per-term retention stays unverified.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | Tapered foundation (PeSTO) + retire `is_endgame` (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Iterative deepening, Strength measurement |
-| Mobility (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
-| King safety (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
-| Pawn structure (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
-| Docs + cumulative measurement (@branransom) | Planned | [evaluation](specs/evaluation/design.md) | Mobility, King safety, Pawn structure |
+| Mobility (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| King safety (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| Pawn structure (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| Docs + cumulative measurement (@branransom) | Done | [measurement](specs/evaluation/fair-match-measurement.md) | Mobility, King safety, Pawn structure |
