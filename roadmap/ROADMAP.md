@@ -82,13 +82,15 @@ principal variation. Improves move quality and enables timed play on lichess.
 Turn engine changes into a measured strength delta: an EPD tactical suite that
 reports a solve-rate and a self-play match that reports an Elo estimate, with
 python-chess as the independent oracle. Verifies every future search and eval
-change instead of guessing.
+change instead of guessing. The next step is to strengthen the self-play
+decision rule so short, flat runs are not over-interpreted.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | EPD tactical suite (solve-rate) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Self-play match (Elo) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Gate self-test + docs (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
+| Fair-match harness + acceptance rule (@branransom) | In progress | [fair-match-harness](specs/fair-match-harness/design.md) | Self-play match (Elo) |
 
 ### Epic 3 — Killer-move and history ordering
 
@@ -106,13 +108,14 @@ composed function; the gain is measured with the strength harness.
 
 Replace material-plus-PST with a tapered evaluation on PeSTO's tuned tables, then
 add mobility, king safety, and pawn structure. Retire the binary `is_endgame`
-flag. Each term is measured against the prior build with the strength harness and
-kept only if it helps.
+flag. Each term is measured against the prior build with the strength harness;
+term-retention decisions stay open until the harness method is fair enough to
+support them.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | Tapered foundation (PeSTO) + retire `is_endgame` (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Iterative deepening, Strength measurement |
-| Mobility (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
-| King safety (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
-| Pawn structure (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame` |
-| Docs + cumulative measurement | Planned | [evaluation](specs/evaluation/design.md) | Mobility, King safety, Pawn structure |
+| Mobility (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| King safety (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| Pawn structure (@branransom) | In progress | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
+| Docs + cumulative measurement (@branransom) | Planned | [evaluation](specs/evaluation/design.md) | Mobility, King safety, Pawn structure |

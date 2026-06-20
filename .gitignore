@@ -17,6 +17,9 @@ principal_variation.json
 # Rust build output
 target/
 
+# foundry harness-deliberation scratch (sessions, raw CLI logs); keep manifest.json
+.foundry/tmp/
+
 # knowledge site (vitepress) — keep knowledge/package-lock.json tracked
 knowledge/node_modules/
 knowledge/.vitepress/cache/
