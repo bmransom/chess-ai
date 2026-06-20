@@ -58,6 +58,11 @@ field, and record must fit. The chess logic lives in the Rust core
 | Tapered evaluation | Phase-weighted blend of middlegame and endgame scores | `evaluate` | `is_endgame` |
 | Game phase | A 0–24 measure of remaining non-pawn material | `game_phase` | |
 | PeSTO | Public texel-tuned middlegame/endgame piece values and piece-square tables | `MG_PIECE_VALUES`, `EG_PIECE_VALUES` | |
+| King safety | Score for a king's shelter and the attackers near it | `king_safety` | |
+| Mobility | Score for a piece's count of available squares | `mobility` | |
+| Doubled pawn | Two friendly pawns on the same file | `pawn_structure` | |
+| Isolated pawn | A pawn with no friendly pawn on an adjacent file | `pawn_structure` | |
+| Passed pawn | A pawn with no enemy pawns ahead on its or adjacent files | `pawn_structure` | |
 | Score | A paired middlegame/endgame value, summed per term and tapered | `Score { mg, eg }` | |
 | Principal variation | The best line the search expects; reported each iteration | `principal_variation` (UCI `pv`) | `pline` |
 | Iterative deepening | Search depth 1, 2, 3 … reusing each iteration's results for ordering | `SearchLimits.max_depth` | |
@@ -78,7 +83,8 @@ field, and record must fit. The chess logic lives in the Rust core
 | UHO opening book | An unbalanced-human-openings book that raises the decisive rate | `fetch_uho.py` | |
 
 Bitboard, magic bitboard, make/unmake, piece-square table, tapered evaluation,
-game phase, PeSTO, negamax, iterative deepening, the triangular PV-table, mate
+game phase, PeSTO, king safety, mobility, the doubled/isolated/passed pawn terms,
+negamax, iterative deepening, the triangular PV-table, mate
 scores, the centipawn, and the killer and history heuristics follow
 [Chess Programming Wiki](https://www.chessprogramming.org/) conventions; Score
 follows Stockfish `make_score` / `Score`; perft, MVV-LVA, EPD, Elo, and self-play
