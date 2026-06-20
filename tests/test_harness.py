@@ -14,6 +14,7 @@ sys.path.insert(0, str(REPO_ROOT / "scripts"))
 import epd_suite  # noqa: E402
 import match_core  # noqa: E402
 import selfplay  # noqa: E402
+import sprt  # noqa: E402
 
 
 class PlayedMove:
@@ -165,8 +166,24 @@ def test_load_openings_normalizes_fen_and_epd(tmp_path):
 
 
 def test_measure_nps_reports_a_positive_rate():
-    import sprt  # noqa: E402
-
     engine = [sys.executable, str(REPO_ROOT / "src" / "main.py")]
     nps = sprt.measure_nps(engine, sprt.COST_BENCH_FEN, node_limit=2000, repeats=3)
     assert nps > 0
+
+
+def test_sprt_runs_a_two_pair_node_limited_mini_match():
+    engine = [sys.executable, str(REPO_ROOT / "src" / "main.py")]
+    limit = match_core.make_limit(None, None, nodes=2000)
+    openings = [chess.STARTING_FEN, chess.STARTING_FEN]
+    pairs = sprt._engine_pairs(
+        engine,
+        engine,
+        openings,
+        limit,
+        max_moves=16,
+        adjudicator_factory=match_core.Adjudicator,
+    )
+    result = sprt.run_sprt(pairs, max_pairs=2, population=2)
+    assert result["pairs"] <= 2
+    assert len(result["counts"]) == 5
+    assert result["verdict"] in {sprt.ACCEPT_H1, sprt.ACCEPT_H0, sprt.INCONCLUSIVE}

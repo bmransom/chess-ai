@@ -72,6 +72,10 @@ field, and record must fit. The chess logic lives in the Rust core
 | Solve-rate | The fraction of EPD positions whose searched move matches a `bm` move | `epd_suite.py` | |
 | Self-play | Two engine builds playing a match to compare strength | `selfplay.py` | |
 | Elo | A rating-difference estimate from a match's score rate | `selfplay.py` | |
+| SPRT | Sequential probability ratio test — accepts H0 or H1 once the log-likelihood ratio crosses a Wald bound | `sprt.py` | |
+| Pentanomial GSPRT | A generalized SPRT over the five outcomes of a color-swapped game pair | `log_likelihood_ratio` | |
+| Node limit | A fixed node budget per search, for deterministic equal-effort play | `go nodes`, `SearchLimits.node_limit` | |
+| UHO opening book | An unbalanced-human-openings book that raises the decisive rate | `fetch_uho.py` | |
 
 Bitboard, magic bitboard, make/unmake, piece-square table, tapered evaluation,
 game phase, PeSTO, negamax, iterative deepening, the triangular PV-table, mate
@@ -80,4 +84,7 @@ scores, the centipawn, and the killer and history heuristics follow
 follows Stockfish `make_score` / `Score`; perft, MVV-LVA, EPD, Elo, and self-play
 already did. The time-control tokens are UCI;
 `SearchLimits` follows Stockfish's `LimitsType`. `brandobot_core` is this repo's
-PyO3 module name.
+PyO3 module name. SPRT follows Wald 1945 and Fishtest; the pentanomial GSPRT
+follows Michel Van den Bergh / Fishtest `LLRcalc`; the node limit follows UCI
+`go nodes` and Stockfish `LimitsType`; the UHO opening book is
+`official-stockfish/books` (CC0).

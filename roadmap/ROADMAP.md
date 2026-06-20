@@ -90,7 +90,7 @@ decision rule so short, flat runs are not over-interpreted.
 | EPD tactical suite (solve-rate) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Self-play match (Elo) (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | Iterative deepening |
 | Gate self-test + docs (@branransom) | Done | [strength-harness](specs/strength-harness/design.md) | EPD tactical suite (solve-rate), Self-play match (Elo) |
-| Fair-match harness + acceptance rule (@branransom) | In progress | [fair-match-harness](specs/fair-match-harness/design.md) | Self-play match (Elo) |
+| Fair-match harness + acceptance rule (@branransom) | Done | [fair-match-harness](specs/fair-match-harness/design.md) | Self-play match (Elo) |
 
 ### Epic 3 — Killer-move and history ordering
 
