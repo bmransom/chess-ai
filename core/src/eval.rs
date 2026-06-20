@@ -17,6 +17,10 @@ const PHASE_MAX: i32 = 24;
 const PHASE_VALUES: [i32; NUM_PIECE_TYPES] = [0, 1, 1, 2, 4, 0];
 const KING_SHIELD_MG: i32 = 12;
 const KING_RING_ATTACK_MG: [i32; NUM_PIECE_TYPES] = [4, 10, 10, 14, 24, 0];
+/// Per available-square mobility weight, indexed by `PieceType`; pawns and kings
+/// score no mobility.
+const MOBILITY_MG: [i32; NUM_PIECE_TYPES] = [0, 4, 4, 2, 1, 0];
+const MOBILITY_EG: [i32; NUM_PIECE_TYPES] = [0, 4, 5, 4, 2, 0];
 
 pub const MG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [82, 337, 365, 477, 1025, 0];
 pub const EG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [94, 281, 297, 512, 936, 0];
@@ -343,12 +347,43 @@ fn king_safety(board: &Board) -> Score {
     total
 }
 
+/// Mobility: each knight, bishop, rook, and queen scores its count of attack
+/// squares not blocked by a friendly piece, weighted per piece type.
+fn mobility(board: &Board) -> Score {
+    let mut total = Score::default();
+    let occupancy = board.occupied();
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let mut friendly: Bitboard = 0;
+        for piece in PieceType::ALL {
+            friendly |= board.pieces(color, piece);
+        }
+        for piece in [
+            PieceType::Knight,
+            PieceType::Bishop,
+            PieceType::Rook,
+            PieceType::Queen,
+        ] {
+            let mut bitboard = board.pieces(color, piece);
+            while bitboard != 0 {
+                let square = pop_lsb(&mut bitboard);
+                let available =
+                    (attack_map(piece, color, square, occupancy) & !friendly).count_ones() as i32;
+                total.mg += available * MOBILITY_MG[piece.index()] * sign;
+                total.eg += available * MOBILITY_EG[piece.index()] * sign;
+            }
+        }
+    }
+    total
+}
+
 /// Absolute (white-positive) evaluation: tapered material plus piece-square bonus.
 pub fn evaluate(board: &Board) -> i32 {
     let mut total = material_placement(board);
     let king_safety = king_safety(board);
-    total.mg += king_safety.mg;
-    total.eg += king_safety.eg;
+    let mobility = mobility(board);
+    total.mg += king_safety.mg + mobility.mg;
+    total.eg += king_safety.eg + mobility.eg;
     total.tapered(game_phase(board))
 }
 
@@ -380,7 +415,20 @@ mod tests {
     fn tapered_evaluation_uses_pesto_material_and_position() {
         let board = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
 
-        assert_eq!(evaluate(&board), 307);
+        assert_eq!(material_placement(&board).tapered(game_phase(&board)), 307);
+    }
+
+    #[test]
+    fn mobility_rewards_the_freer_side() {
+        let central = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
+        let cornered = Board::from_fen("4k3/8/8/8/8/8/8/N3K3 w - - 0 1").unwrap();
+
+        assert!(mobility(&central).mg > mobility(&cornered).mg);
+    }
+
+    #[test]
+    fn mobility_is_symmetric_at_the_start() {
+        assert_eq!(mobility(&Board::startpos()), Score::default());
     }
 
     #[test]
