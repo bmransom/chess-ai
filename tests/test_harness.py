@@ -183,7 +183,9 @@ def test_sprt_runs_a_two_pair_node_limited_mini_match():
         max_moves=16,
         adjudicator_factory=match_core.Adjudicator,
     )
-    result = sprt.run_sprt(pairs, max_pairs=2, population=2)
+    result = sprt.run_sprt(
+        pairs, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05, max_pairs=2, population=2
+    )
     assert result["pairs"] <= 2
     assert len(result["counts"]) == 5
     assert result["verdict"] in {sprt.ACCEPT_H1, sprt.ACCEPT_H0, sprt.INCONCLUSIVE}

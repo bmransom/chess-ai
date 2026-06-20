@@ -147,7 +147,7 @@ def plot_llr_trajectory(final, progress, out):
     plt.close(fig)
 
 
-def plot_comparison(final, old_elo, old_margin, out):
+def plot_method_comparison(final, old_elo, old_margin, out):
     fig, axis = plt.subplots(figsize=(6.4, 2.6))
     rows = [
         (
@@ -208,7 +208,7 @@ def main():
     plot_pentanomial(final, out)
     plot_census_trajectory(final, progress, out)
     plot_llr_trajectory(final, progress, out)
-    plot_comparison(final, args.old_elo, args.old_margin, out)
+    plot_method_comparison(final, args.old_elo, args.old_margin, out)
     print(
         f"wrote 4 charts to {out} (verdict: {final['verdict']}, {final['pairs']} pairs)"
     )

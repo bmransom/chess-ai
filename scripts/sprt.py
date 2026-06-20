@@ -20,9 +20,9 @@ import shlex
 import sys
 import time
 
-import chess.engine
-
-import match_core
+# Engine-free by design: the SPRT statistics import nothing from the chess engine
+# or match harness, so the math can be imported (and charted, and unit-tested)
+# without the engine adapter. The engine-driving helpers import lazily below.
 
 # Normalized pair scores: the average of the pair's two game scores.
 PAIR_SCORES = (0.0, 0.25, 0.5, 0.75, 1.0)
@@ -177,9 +177,10 @@ def census_estimate(counts, population=None):
 # sufficient -- the keep/drop rule is accept-H1 AND a passing node-rate check.
 
 COST_BENCH_FEN = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 1"
+NPS_BENCH_REPEATS = 10
 
 
-def cost_gate(candidate_nps, baseline_nps, max_slowdown=0.05):
+def cost_gate(candidate_nps, baseline_nps, max_slowdown):
     """True if the candidate's node rate stays within `max_slowdown` of the
     baseline's — the second half of the keep/drop rule."""
     if baseline_nps <= 0:
@@ -187,9 +188,13 @@ def cost_gate(candidate_nps, baseline_nps, max_slowdown=0.05):
     return candidate_nps >= baseline_nps * (1.0 - max_slowdown)
 
 
-def measure_nps(engine_command, fen, node_limit, repeats=10):
+def measure_nps(engine_command, fen, node_limit, repeats):
     """Search `fen` at a fixed node budget `repeats` times and return the engine's
     node rate (nodes per second)."""
+    import chess.engine
+
+    import match_core
+
     limit = match_core.make_limit(None, None, nodes=node_limit)
     board = chess.Board(fen)
     total_nodes = 0
@@ -206,7 +211,7 @@ def measure_nps(engine_command, fen, node_limit, repeats=10):
 class Sprt:
     """Accumulates pentanomial counts and reports the running LLR and verdict."""
 
-    def __init__(self, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05):
+    def __init__(self, elo0, elo1, alpha, beta):
         self.elo0 = elo0
         self.elo1 = elo1
         self.alpha = alpha
@@ -228,10 +233,10 @@ class Sprt:
 
 def run_sprt(
     pairs,
-    elo0=0.0,
-    elo1=5.0,
-    alpha=0.05,
-    beta=0.05,
+    elo0,
+    elo1,
+    alpha,
+    beta,
     max_pairs=None,
     population=None,
     progress=None,
@@ -276,6 +281,10 @@ def run_sprt(
 def _engine_pairs(candidate, baseline, openings, limit, max_moves, adjudicator_factory):
     """Yield the pentanomial category of each color-swapped pair, dropping a pair
     if either of its games truncates."""
+    import chess.engine
+
+    import match_core
+
     with (
         chess.engine.SimpleEngine.popen_uci(candidate) as engine1,
         chess.engine.SimpleEngine.popen_uci(baseline) as engine2,
@@ -343,6 +352,8 @@ def main():
     )
     args = parser.parse_args()
 
+    import match_core
+
     # Quiet python-chess's per-command engine logging so long runs stay readable.
     logging.getLogger("chess.engine").setLevel(logging.WARNING)
 
@@ -382,10 +393,10 @@ def main():
 
     if args.cost_check:
         candidate_nps = measure_nps(
-            shlex.split(args.engine1), COST_BENCH_FEN, args.nodes
+            shlex.split(args.engine1), COST_BENCH_FEN, args.nodes, NPS_BENCH_REPEATS
         )
         baseline_nps = measure_nps(
-            shlex.split(args.engine2), COST_BENCH_FEN, args.nodes
+            shlex.split(args.engine2), COST_BENCH_FEN, args.nodes, NPS_BENCH_REPEATS
         )
         passed = cost_gate(candidate_nps, baseline_nps, args.max_slowdown)
         keep = result["verdict"] == ACCEPT_H1 and passed

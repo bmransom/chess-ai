@@ -79,6 +79,7 @@ field, and record must fit. The chess logic lives in the Rust core
 | Elo | A rating-difference estimate from a match's score rate | `selfplay.py` | |
 | SPRT | Sequential probability ratio test — accepts H0 or H1 once the log-likelihood ratio crosses a Wald bound | `sprt.py` | |
 | Pentanomial GSPRT | A generalized SPRT over the five outcomes of a color-swapped game pair | `log_likelihood_ratio` | |
+| Census | The point-estimate Elo and confidence interval from the played pairs, with a finite-population correction to the full book | `census_estimate` | |
 | Node limit | A fixed node budget per search, for deterministic equal-effort play | `go nodes`, `SearchLimits.node_limit` | |
 | UHO opening book | An unbalanced-human-openings book that raises the decisive rate | `fetch_uho.py` | |
 
