@@ -44,6 +44,9 @@ pub struct SearchLimits {
     pub white_increment_ms: u64,
     pub black_increment_ms: u64,
     pub moves_to_go: Option<u32>,
+    /// Stop after this many searched nodes — a deterministic, equal-effort budget
+    /// for fair-match measurement. Bounds the search exactly, independent of the clock.
+    pub node_limit: Option<u64>,
 }
 
 /// The outcome of a search. `score` is internal (centipawns or a mate score);
@@ -74,6 +77,7 @@ pub struct Searcher<'a> {
     killers: Vec<[Option<Move>; 2]>,
     nodes: u64,
     deadline: Option<Instant>,
+    node_limit: Option<u64>,
     stopped: bool,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
@@ -89,6 +93,7 @@ impl<'a> Searcher<'a> {
             killers: vec![[None, None]; MAX_SEARCH_PLY],
             nodes: 0,
             deadline: None,
+            node_limit: None,
             stopped: false,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
         }
@@ -104,6 +109,7 @@ impl<'a> Searcher<'a> {
     ) -> SearchResult {
         self.deadline = compute_budget_ms(board.side_to_move(), limits)
             .map(|budget| now + Duration::from_millis(budget));
+        self.node_limit = limits.node_limit;
         let max_depth = limits.max_depth.max(1) as i32;
 
         // Fallback so we always return a legal move, even if depth 1 is cut off.
@@ -181,6 +187,14 @@ impl<'a> Searcher<'a> {
     fn should_stop(&mut self) -> bool {
         if self.stopped {
             return true;
+        }
+        // The node budget is checked every node (not batched), so even a tiny limit
+        // binds exactly; the clock is polled in batches to amortize `Instant::now`.
+        if let Some(limit) = self.node_limit {
+            if self.nodes >= limit {
+                self.stopped = true;
+                return true;
+            }
         }
         if self.nodes.is_multiple_of(STOP_CHECK_INTERVAL) {
             if let Some(deadline) = self.deadline {
@@ -609,6 +623,51 @@ mod tests {
         );
         assert!(result.best_move.is_some());
         assert!(result.elapsed_ms < 2_000, "elapsed {}", result.elapsed_ms);
+    }
+
+    // --- Fair-match Wave 1: node-limited search ---
+
+    #[test]
+    fn node_limit_binds_the_search() {
+        let result = run_search(
+            STARTPOS,
+            SearchLimits {
+                max_depth: 64,
+                node_limit: Some(50_000),
+                ..Default::default()
+            },
+        );
+        assert!(result.best_move.is_some());
+        // The budget binds (not the depth-64 default) and binds tightly: the
+        // search stops at the node that reaches the limit, plus a small unwind.
+        assert!(result.nodes >= 50_000, "nodes {}", result.nodes);
+        assert!(result.nodes < 60_000, "nodes {}", result.nodes);
+    }
+
+    #[test]
+    fn node_limit_search_is_deterministic() {
+        let limits = SearchLimits {
+            max_depth: 64,
+            node_limit: Some(20_000),
+            ..Default::default()
+        };
+        let first = run_search(MIDGAME, limits);
+        let second = run_search(MIDGAME, limits);
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.nodes, second.nodes);
+    }
+
+    #[test]
+    fn a_tiny_node_budget_still_returns_a_move() {
+        let result = run_search(
+            MIDGAME,
+            SearchLimits {
+                max_depth: 64,
+                node_limit: Some(1),
+                ..Default::default()
+            },
+        );
+        assert!(result.best_move.is_some());
     }
 
     // --- Wave 4: principal variation ---

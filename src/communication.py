@@ -7,6 +7,7 @@ import brandobot_core
 GO_PARAMETERS = {
     "depth": "max_depth",
     "movetime": "move_time_ms",
+    "nodes": "node_limit",
     "wtime": "white_time_ms",
     "btime": "black_time_ms",
     "winc": "white_increment_ms",

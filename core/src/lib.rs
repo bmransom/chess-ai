@@ -163,7 +163,7 @@ impl Searcher {
     /// `mate_in_moves` is the signed moves to mate otherwise.
     #[pyo3(signature = (max_depth=64, move_time_ms=None, white_time_ms=None,
                         black_time_ms=None, white_increment_ms=0,
-                        black_increment_ms=0, moves_to_go=None))]
+                        black_increment_ms=0, moves_to_go=None, node_limit=None))]
     #[allow(clippy::too_many_arguments)]
     fn search<'py>(
         &mut self,
@@ -175,6 +175,7 @@ impl Searcher {
         white_increment_ms: u64,
         black_increment_ms: u64,
         moves_to_go: Option<u32>,
+        node_limit: Option<u64>,
     ) -> PyResult<Bound<'py, PyDict>> {
         let limits = search::SearchLimits {
             max_depth,
@@ -184,6 +185,7 @@ impl Searcher {
             white_increment_ms,
             black_increment_ms,
             moves_to_go,
+            node_limit,
         };
         let result = {
             let mut searcher = search::Searcher::new(&mut self.transposition_table);

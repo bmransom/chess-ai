@@ -12,3 +12,9 @@ Feature: UCI chess engine
     When it searches the start position with "movetime 200"
     Then it replies "bestmove"
     And it reports a principal variation
+
+  Scenario: it honors a fixed node budget with "go nodes"
+    Given the chess engine is available
+    When it searches the start position with "nodes 100000"
+    Then it replies "bestmove"
+    And it searches at least 90000 nodes
