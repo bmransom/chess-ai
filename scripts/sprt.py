@@ -17,6 +17,7 @@ import math
 import random
 import shlex
 import sys
+import time
 
 import chess.engine
 
@@ -167,6 +168,40 @@ def census_estimate(counts, population=None):
     )
 
 
+# --- Cost gate ---
+#
+# Fixed-node SPRT gives both engines the same node budget, so it is blind to a
+# term's per-node cost: a +4-Elo term that runs 20% slower is net-negative at a
+# real time control. An accept-H1 verdict is therefore necessary but not
+# sufficient -- the keep/drop rule is accept-H1 AND a passing node-rate check.
+
+COST_BENCH_FEN = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 1"
+
+
+def cost_gate(candidate_nps, baseline_nps, max_slowdown=0.05):
+    """True if the candidate's node rate stays within `max_slowdown` of the
+    baseline's — the second half of the keep/drop rule."""
+    if baseline_nps <= 0:
+        return True
+    return candidate_nps >= baseline_nps * (1.0 - max_slowdown)
+
+
+def measure_nps(engine_command, fen, node_limit, repeats=10):
+    """Search `fen` at a fixed node budget `repeats` times and return the engine's
+    node rate (nodes per second)."""
+    limit = match_core.make_limit(None, None, nodes=node_limit)
+    board = chess.Board(fen)
+    total_nodes = 0
+    elapsed = 0.0
+    with chess.engine.SimpleEngine.popen_uci(engine_command) as engine:
+        for index in range(repeats):
+            started = time.monotonic()
+            info = engine.analyse(board, limit, game=index)
+            elapsed += time.monotonic() - started
+            total_nodes += info.get("nodes", 0)
+    return total_nodes / elapsed if elapsed > 0.0 else 0.0
+
+
 class Sprt:
     """Accumulates pentanomial counts and reports the running LLR and verdict."""
 
@@ -266,9 +301,22 @@ def main():
     parser.add_argument("--max-pairs", type=int, default=None, help="unique-pair cap")
     parser.add_argument("--max-moves", type=int, default=200, help="move-cap fallback")
     parser.add_argument(
-        "--openings", default="bench/openings.epd", help="UHO opening book"
+        "--openings",
+        default="bench/uho_4060_v4.epd",
+        help="UHO opening book (run scripts/fetch_uho.py to provision it)",
     )
     parser.add_argument("--seed", type=int, default=0, help="opening-shuffle seed")
+    parser.add_argument(
+        "--cost-check",
+        action="store_true",
+        help="also measure node rate and report the keep/drop decision",
+    )
+    parser.add_argument(
+        "--max-slowdown",
+        type=float,
+        default=0.05,
+        help="max node-rate slowdown the candidate may cost",
+    )
     args = parser.parse_args()
 
     openings = match_core.load_openings(args.openings)
@@ -300,6 +348,21 @@ def main():
         f"LLR {result['llr']:+.2f}; counts {result['counts']}; "
         f"Elo {result['elo']:+.1f} [{result['elo_low']:+.1f}, {result['elo_high']:+.1f}]"
     )
+
+    if args.cost_check:
+        candidate_nps = measure_nps(
+            shlex.split(args.engine1), COST_BENCH_FEN, args.nodes
+        )
+        baseline_nps = measure_nps(
+            shlex.split(args.engine2), COST_BENCH_FEN, args.nodes
+        )
+        passed = cost_gate(candidate_nps, baseline_nps, args.max_slowdown)
+        keep = result["verdict"] == ACCEPT_H1 and passed
+        print(
+            f"cost: candidate {candidate_nps:,.0f} nps vs baseline {baseline_nps:,.0f} nps "
+            f"-> {'pass' if passed else 'fail'}"
+        )
+        print(f"keep: {keep} (accept-H1 and a passing cost gate)")
 
 
 if __name__ == "__main__":

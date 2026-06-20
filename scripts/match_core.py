@@ -229,13 +229,24 @@ def run_match(
     return wins, losses, draws
 
 
+def opening_fen(line):
+    """Return a FEN for an opening line, accepting either a full FEN or an EPD
+    line with operations (the format of the UHO books)."""
+    try:
+        return chess.Board(line).fen()
+    except ValueError:
+        board = chess.Board()
+        board.set_epd(line)
+        return board.fen()
+
+
 def load_openings(path):
     openings = []
     with open(path) as handle:
         for line in handle:
             line = line.strip()
             if line and not line.startswith("#"):
-                openings.append(line)
+                openings.append(opening_fen(line))
     return openings
 
 

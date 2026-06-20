@@ -149,3 +149,24 @@ def test_play_game_is_reproducible_after_ucinewgame():
         )
     assert first.moves, "the engines played at least one move"
     assert first.moves == second.moves  # ucinewgame clears the TT, so the game repeats
+
+
+def test_load_openings_normalizes_fen_and_epd(tmp_path):
+    book = tmp_path / "book.epd"
+    book.write_text(
+        "# a UHO-style book mixes full FENs and EPD lines with operations\n"
+        "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1\n"
+        'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - bm Nf6; id "x";\n'
+    )
+    openings = match_core.load_openings(str(book))
+    assert len(openings) == 2
+    for fen in openings:
+        chess.Board(fen)  # every loaded opening is a valid FEN
+
+
+def test_measure_nps_reports_a_positive_rate():
+    import sprt  # noqa: E402
+
+    engine = [sys.executable, str(REPO_ROOT / "src" / "main.py")]
+    nps = sprt.measure_nps(engine, sprt.COST_BENCH_FEN, node_limit=2000, repeats=3)
+    assert nps > 0

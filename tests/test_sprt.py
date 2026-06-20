@@ -136,6 +136,21 @@ def test_score_pair_categories():
     assert sprt.score_pair("1-0", "1-0") == 2  # win as White, loss as Black
 
 
+# --- Cost gate ---
+
+
+def test_cost_gate_passes_within_tolerance():
+    assert sprt.cost_gate(960_000, 1_000_000, max_slowdown=0.05) is True
+
+
+def test_cost_gate_fails_a_slow_candidate():
+    assert sprt.cost_gate(800_000, 1_000_000, max_slowdown=0.05) is False
+
+
+def test_cost_gate_passes_a_faster_candidate():
+    assert sprt.cost_gate(1_200_000, 1_000_000) is True
+
+
 # Local approx helper to avoid importing pytest just for approx in a plain assert.
 def pytest_approx(value, rel=None, abs=None):
 
