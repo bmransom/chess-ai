@@ -13,7 +13,6 @@ import math
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,34 +43,37 @@ def test_llr_matches_the_binomial_wald_oracle():
 # --- Oracle 2: brute-force constrained likelihood maximizer ---
 
 
-def _max_constrained_loglik(counts, mean, seed=0):
-    """Maximize sum n_i log q_i over the simplex with mean fixed to `mean`, by
-    random search with shrinking refinement — an independent method (no Lagrange
-    root-find, no shared code with sprt)."""
-    rng = np.random.default_rng(seed)
-    n = np.array(counts, dtype=float)
-    best_loglik = -np.inf
-    best_q = None
+def _max_constrained_loglik(counts, mean, steps=12, levels=4):
+    """Maximize sum n_i log q_i over the simplex with the mean fixed to `mean`, by
+    a grid search with shrinking refinement — an independent method (no Lagrange
+    root-find, no shared code with sprt). The free variables are q1, q2, q3; q4
+    and q0 follow from the sum-to-one and mean constraints."""
+    counts = [float(count) for count in counts]
+    best = -math.inf
+    center = (0.5, 0.5, 0.5)
     span = 1.0
-    for _ in range(5):
-        if best_q is None:
-            free = rng.random((400_000, 3))
-        else:
-            free = best_q[1:4] + (rng.random((400_000, 3)) - 0.5) * span
-        q1, q2, q3 = free[:, 0], free[:, 1], free[:, 2]
-        q4 = mean - (0.25 * q1 + 0.5 * q2 + 0.75 * q3)
-        q0 = 1.0 - (q1 + q2 + q3) - q4
-        q = np.stack([q0, q1, q2, q3, q4], axis=1)
-        feasible = (q > 1e-9).all(axis=1)
-        loglik = np.where(
-            feasible, (n * np.log(np.where(q > 0, q, 1.0))).sum(axis=1), -np.inf
-        )
-        best = int(np.argmax(loglik))
-        if loglik[best] > best_loglik:
-            best_loglik = float(loglik[best])
-            best_q = q[best]
-        span *= 0.2
-    return best_loglik
+    for _ in range(levels):
+        lows = [max(0.0, value - span / 2.0) for value in center]
+        for i in range(steps + 1):
+            q1 = lows[0] + span * i / steps
+            for j in range(steps + 1):
+                q2 = lows[1] + span * j / steps
+                for k in range(steps + 1):
+                    q3 = lows[2] + span * k / steps
+                    q4 = mean - (0.25 * q1 + 0.5 * q2 + 0.75 * q3)
+                    q0 = 1.0 - (q1 + q2 + q3) - q4
+                    distribution = (q0, q1, q2, q3, q4)
+                    if min(distribution) <= 1e-9:
+                        continue
+                    loglik = sum(
+                        count * math.log(probability)
+                        for count, probability in zip(counts, distribution)
+                    )
+                    if loglik > best:
+                        best = loglik
+                        center = (q1, q2, q3)
+        span *= 0.25
+    return best
 
 
 def test_llr_matches_the_brute_force_maximizer():
