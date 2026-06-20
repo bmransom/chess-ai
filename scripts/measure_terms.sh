@@ -35,7 +35,10 @@ build() { # <commit> <name>; echoes the engine command on stdout
   git -C "$REPO" worktree add --force --detach "$dir" "$commit" >&2
   python3 -m venv "$dir/.venv" >&2
   "$dir/.venv/bin/pip" install -q -r "$dir/requirements-dev.txt" >&2
-  "$dir/.venv/bin/maturin" develop --release -m "$dir/core/Cargo.toml" >&2
+  # VIRTUAL_ENV pins the install to this worktree's venv; without it maturin
+  # finds the main repo venv and the worktree python can't import the core.
+  VIRTUAL_ENV="$dir/.venv" "$dir/.venv/bin/maturin" develop --release \
+    -m "$dir/core/Cargo.toml" >&2
   echo "$dir/.venv/bin/python $dir/src/main.py"
 }
 
