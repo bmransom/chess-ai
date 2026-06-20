@@ -1,6 +1,52 @@
 {
-  "harnesses": [
-    "claude-code",
-    "codex"
-  ]
+  "pluginVersion": "0.1.2",
+  "conventionVersion": 3,
+  "harnesses": ["claude-code"],
+  "files": {
+    ".githooks/pre-push": {
+      "template": "pre-push",
+      "version": 1,
+      "sha256": "b670a1a8366b2474637d27b22f44ff21e8ad2519915cfe10efe2275dc5b80409"
+    },
+    "knowledge/.vitepress/config.ts": {
+      "template": "vitepress-config",
+      "version": 1,
+      "sha256": "9447ab1fb48d1af3e0f6cee1af98989420cac9cce31daf41b4bf0f124eebdec9"
+    },
+    "knowledge/package.json": {
+      "template": "vitepress-package",
+      "version": 1,
+      "sha256": "cddd2812efddc1a8fe2647da7f0e32a599150721a1947b47d10179232353786d"
+    },
+    "knowledge/tsconfig.json": {
+      "template": "vitepress-tsconfig",
+      "version": 1,
+      "sha256": "3c66b12f46338224aea7b483414ca26abd6b979b4b5721bcaeeefe3f5bfa9e09"
+    },
+    "scripts/board.sh": {
+      "template": "board",
+      "version": 1,
+      "sha256": "4545f57ff5f9ddc436017e0d79a77db3f3698fe4197fd759e4f6b5d1cb173c72"
+    },
+    "scripts/install-hooks.sh": {
+      "template": "install-hooks",
+      "version": 1,
+      "sha256": "cc43c6a5dc666d4b22a2f393665738aaad8c17aa04b419ebcf414330a81e167a"
+    },
+    "scripts/knowledge.py": {
+      "template": "knowledge",
+      "version": 1,
+      "sha256": "9d65fb962c3dad26494fb88a137c4f79f4d034ec2c20a05b3131691ad7dd426a"
+    },
+    "scripts/test_knowledge.py": {
+      "template": "test-knowledge",
+      "version": 1,
+      "sha256": "99716ecccee5792945c68ff319350304924f1c6fa37166c5ce8aed31b24a6c93"
+    },
+    "scripts/worktree-retire.sh": {
+      "template": "worktree-retire",
+      "version": 1,
+      "sha256": "4b9bf74f34988607172dbb903b9dcce0b9e66e992132f930fb7c4a6b598e0943"
+    }
+  }
 }

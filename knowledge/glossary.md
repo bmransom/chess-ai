@@ -15,7 +15,7 @@ none fits.
 
 **Vocabulary polarity:** this is a **neutral engine** — it excludes outside
 (product, business) vocabulary and uses only established chess and game-tree
-search terminology. `.claude/rules/spec-conventions.md` and the `spec-reviewer`
+search terminology. `rules/spec-conventions.md` and the `spec-reviewer`
 agent enforce the rule in specs and concepts; when the debt column below gains
 entries, `scripts/vocab-lint.sh` enforces it in code too.
 
