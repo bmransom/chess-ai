@@ -7,6 +7,7 @@ import brandobot_core
 GO_PARAMETERS = {
     "depth": "max_depth",
     "movetime": "move_time_ms",
+    "nodes": "node_limit",
     "wtime": "white_time_ms",
     "btime": "black_time_ms",
     "winc": "white_increment_ms",
@@ -61,9 +62,7 @@ def go(searcher, default_depth, message):
     """Run a search for a `go` command and report `info` then `bestmove`."""
     limits = parse_go(message)
     if limits is None:
-        # Bare `go`: a fixed default depth, deeper in the endgame as before.
-        boost = 4 if brandobot_core.is_endgame(searcher.fen()) else 0
-        result = searcher.search(max_depth=default_depth + boost)
+        result = searcher.search(max_depth=default_depth)
     else:
         result = searcher.search(**limits)
 

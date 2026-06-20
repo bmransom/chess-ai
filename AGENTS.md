@@ -18,6 +18,8 @@ scripts/check-fast.sh            # canonical gate: cargo fmt/clippy/test + matur
 .venv/bin/python src/perft.py    # move-generation benchmark
 .venv/bin/python scripts/epd_suite.py --movetime 100 bench/wac.epd  # tactical solve-rate
 .venv/bin/python scripts/selfplay.py --games 100 --depth 4          # self-play Elo
+.venv/bin/python scripts/fetch_uho.py            # provision the UHO opening book (CC0)
+.venv/bin/python scripts/sprt.py --nodes 200000 --cost-check        # fair-match SPRT verdict
 scripts/board.sh                 # render the kanban board from roadmap/ROADMAP.md
 ```
 

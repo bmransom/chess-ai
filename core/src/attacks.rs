@@ -68,6 +68,10 @@ fn tables() -> &'static Attacks {
     })
 }
 
+pub fn warm() {
+    let _ = tables();
+}
+
 const KNIGHT_DELTAS: [(i8, i8); 8] = [
     (1, 2),
     (2, 1),

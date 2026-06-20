@@ -1,7 +1,7 @@
 {
   "pluginVersion": "0.1.2",
   "conventionVersion": 3,
-  "harnesses": ["claude-code"],
+  "harnesses": ["claude-code", "codex"],
   "files": {
     ".githooks/pre-push": {
       "template": "pre-push",

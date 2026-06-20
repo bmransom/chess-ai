@@ -27,7 +27,7 @@ field, and record must fit. The chess logic lives in the Rust core
 `api.py` over HTTP) are thin wrappers that hold a `Searcher`.
 
 - **Engine** — the UCI process (`src/main.py` → `communication.talk`)
-  - **Board** — a chess position (FEN); bitboards, `value()`, and `is_endgame`
+  - **Board** — a chess position (FEN); bitboards and `evaluate()`
     - **Move** — one move in UCI long algebraic notation (e.g. `e2e4`)
   - **Searcher** — runs negamax + alpha-beta to a depth; returns the best Move
     - **TranspositionTable** — Zobrist-keyed cache of evaluated positions
@@ -55,6 +55,10 @@ field, and record must fit. The chess logic lives in the Rust core
 | Magic bitboard | Perfect-hash lookup of a slider's attacks by blocker configuration | | |
 | Make/unmake | Apply a Move, then reverse it, updating the Zobrist key incrementally | `make_move` / `unmake_move` | |
 | Piece-square table | Per-piece, per-square positional bonus added to material in evaluation | | |
+| Tapered evaluation | Phase-weighted blend of middlegame and endgame scores | `evaluate` | `is_endgame` |
+| Game phase | A 0–24 measure of remaining non-pawn material | `game_phase` | |
+| PeSTO | Public texel-tuned middlegame/endgame piece values and piece-square tables | `MG_PIECE_VALUES`, `EG_PIECE_VALUES` | |
+| Score | A paired middlegame/endgame value, summed per term and tapered | `Score { mg, eg }` | |
 | Principal variation | The best line the search expects; reported each iteration | `principal_variation` (UCI `pv`) | `pline` |
 | Iterative deepening | Search depth 1, 2, 3 … reusing each iteration's results for ordering | `SearchLimits.max_depth` | |
 | Triangular PV-table | Ply-indexed array that collects the principal variation | `pv_table` | |
@@ -63,16 +67,24 @@ field, and record must fit. The chess logic lives in the Rust core
 | Time control | The UCI clock tokens the wrapper parses into a per-move budget | `wtime`/`btime`/`winc`/`binc`/`movetime`/`movestogo` | |
 | SearchLimits | The parsed per-search limits, depth and time | `SearchLimits` | |
 | Perft | Performance test — counts leaf nodes to a depth to validate move generation | `perft(fen, depth)` | |
-| Endgame | Late-game phase that triggers deeper search | `Board::is_endgame` | |
 | brandobot_core | The Rust engine core exposed to Python as a PyO3 module | `import brandobot_core` | |
 | EPD | Extended Position Description — a FEN plus operations such as `bm` (best move) | `bench/wac.epd` | |
 | Solve-rate | The fraction of EPD positions whose searched move matches a `bm` move | `epd_suite.py` | |
 | Self-play | Two engine builds playing a match to compare strength | `selfplay.py` | |
 | Elo | A rating-difference estimate from a match's score rate | `selfplay.py` | |
+| SPRT | Sequential probability ratio test — accepts H0 or H1 once the log-likelihood ratio crosses a Wald bound | `sprt.py` | |
+| Pentanomial GSPRT | A generalized SPRT over the five outcomes of a color-swapped game pair | `log_likelihood_ratio` | |
+| Node limit | A fixed node budget per search, for deterministic equal-effort play | `go nodes`, `SearchLimits.node_limit` | |
+| UHO opening book | An unbalanced-human-openings book that raises the decisive rate | `fetch_uho.py` | |
 
-Bitboard, magic bitboard, make/unmake, piece-square table, negamax, iterative
-deepening, the triangular PV-table, mate scores, the centipawn, and the killer and
-history heuristics follow [Chess Programming Wiki](https://www.chessprogramming.org/)
-conventions; perft, MVV-LVA, EPD, Elo, and self-play already did. The time-control tokens are UCI;
+Bitboard, magic bitboard, make/unmake, piece-square table, tapered evaluation,
+game phase, PeSTO, negamax, iterative deepening, the triangular PV-table, mate
+scores, the centipawn, and the killer and history heuristics follow
+[Chess Programming Wiki](https://www.chessprogramming.org/) conventions; Score
+follows Stockfish `make_score` / `Score`; perft, MVV-LVA, EPD, Elo, and self-play
+already did. The time-control tokens are UCI;
 `SearchLimits` follows Stockfish's `LimitsType`. `brandobot_core` is this repo's
-PyO3 module name.
+PyO3 module name. SPRT follows Wald 1945 and Fishtest; the pentanomial GSPRT
+follows Michel Van den Bergh / Fishtest `LLRcalc`; the node limit follows UCI
+`go nodes` and Stockfish `LimitsType`; the UHO opening book is
+`official-stockfish/books` (CC0).

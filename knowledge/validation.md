@@ -24,3 +24,6 @@ Add a row for every gate.
 | Gate | Command | Catches | Trigger |
 |---|---|---|---|
 | Quick gate | `scripts/check-fast.sh` | lint, unit tests, doc frontmatter | pre-push + CI |
+| EPD tactical suite | `scripts/epd_suite.py <suite>` | tactical-strength regressions (solve-rate) | manual |
+| Self-play Elo | `scripts/selfplay.py` | a fixed-N Elo strength delta vs a baseline | manual |
+| Fair-match SPRT | `scripts/sprt.py` | a bounded-error keep/drop verdict on an eval term | manual |

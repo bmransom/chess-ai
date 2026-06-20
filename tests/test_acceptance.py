@@ -84,3 +84,15 @@ def reports_principal_variation(uci_session):
     ]
     assert info_lines, uci_session["stdout"]
     assert any(" pv " in line for line in info_lines), uci_session["stdout"]
+
+
+@then(parsers.parse("it searches at least {minimum:d} nodes"))
+def searches_at_least(uci_session, minimum):
+    assert uci_session["returncode"] == 0, uci_session
+    counts = [
+        int(match.group(1))
+        for line in uci_session["stdout"].splitlines()
+        if (match := re.search(r"\bnodes (\d+)", line))
+    ]
+    assert counts, uci_session["stdout"]
+    assert max(counts) >= minimum, uci_session["stdout"]

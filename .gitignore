@@ -17,6 +17,12 @@ principal_variation.json
 # Rust build output
 target/
 
+# foundry harness-deliberation scratch (sessions, raw CLI logs); keep manifest.json
+.foundry/tmp/
+
+# fetched UHO opening book (large, reproducible via scripts/fetch_uho.py)
+bench/uho_4060_v4.epd
+
 # knowledge site (vitepress) — keep knowledge/package-lock.json tracked
 knowledge/node_modules/
 knowledge/.vitepress/cache/
