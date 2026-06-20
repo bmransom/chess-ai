@@ -14,12 +14,16 @@ measurement report:
 import argparse
 import math
 import re
+import sys
 from pathlib import Path
 
 import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sprt  # noqa: E402
 
 CATEGORIES = ["LL", "LD+DL", "LW+DD+WL", "DW+WD", "WW"]
 CATEGORY_COLORS = ["#c0392b", "#e08e0b", "#7f8c8d", "#27ae60", "#1e8449"]
@@ -35,24 +39,32 @@ _FINAL = re.compile(
 )
 
 
-def parse_log(path):
-    """Return (config, progress, final) parsed from an SPRT log."""
+def _census(counts, population):
+    """Recompute the census Elo and CI from counts, so the chart is correct even
+    if the log's CI was written with a different population."""
+    elo, low, high = sprt.census_estimate(counts, population)
+    return {"elo": elo, "ci_low": low, "ci_high": high}
+
+
+def parse_log(path, population):
+    """Return (final, progress) parsed from an SPRT log; CIs are recomputed from
+    the counts against `population` (the full book)."""
     text = Path(path).read_text()
     progress = []
     for match in _PROGRESS.finditer(text):
+        counts = [int(value) for value in match.group(3).split(",")]
         progress.append(
             {
                 "pairs": int(match.group(1)),
                 "llr": float(match.group(2)),
-                "counts": [int(value) for value in match.group(3).split(",")],
-                "elo": float(match.group(4)),
-                "ci_low": float(match.group(5)),
-                "ci_high": float(match.group(6)),
+                "counts": counts,
+                **_census(counts, population),
             }
         )
     final_match = _FINAL.search(text)
     if final_match is None:
         raise SystemExit("no final SPRT summary found in the log")
+    counts = [int(value) for value in final_match.group(8).split(",")]
     final = {
         "elo0": int(final_match.group(1)),
         "elo1": int(final_match.group(2)),
@@ -61,10 +73,8 @@ def parse_log(path):
         "verdict": final_match.group(5),
         "pairs": int(final_match.group(6)),
         "llr": float(final_match.group(7)),
-        "counts": [int(value) for value in final_match.group(8).split(",")],
-        "elo": float(final_match.group(9)),
-        "ci_low": float(final_match.group(10)),
-        "ci_high": float(final_match.group(11)),
+        "counts": counts,
+        **_census(counts, population),
     }
     return final, progress
 
@@ -187,9 +197,12 @@ def main():
     parser.add_argument(
         "--old-margin", type=float, default=84.0, help="old-method ± margin"
     )
+    parser.add_argument(
+        "--population", type=int, default=241670, help="opening-book size for the CI"
+    )
     args = parser.parse_args()
 
-    final, progress = parse_log(args.log)
+    final, progress = parse_log(args.log, args.population)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     plot_pentanomial(final, out)

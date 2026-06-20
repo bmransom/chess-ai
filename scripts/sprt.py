@@ -348,8 +348,10 @@ def main():
 
     openings = match_core.load_openings(args.openings)
     random.Random(args.seed).shuffle(openings)
-    if args.max_pairs is not None:
-        openings = openings[: args.max_pairs]
+    # The full book is the population for the finite-population correction; the
+    # pair source is lazy, so run_sprt's max_pairs caps the run without truncating
+    # the book (truncating it would collapse the census CI at exhaustion).
+    population = len(openings)
     limit = match_core.make_limit(None, None, nodes=args.nodes)
 
     pairs = _engine_pairs(
@@ -367,7 +369,7 @@ def main():
         alpha=args.alpha,
         beta=args.beta,
         max_pairs=args.max_pairs,
-        population=len(openings),
+        population=population,
         progress=sys.stderr,
         progress_every=args.progress_every,
     )
