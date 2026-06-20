@@ -13,6 +13,7 @@ The five categories index pair outcomes by their normalized score:
     score  0.0  0.25     0.5          0.75    1.0   (= average game score)
 """
 
+import logging
 import math
 import random
 import shlex
@@ -226,17 +227,34 @@ class Sprt:
 
 
 def run_sprt(
-    pairs, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05, max_pairs=None, population=None
+    pairs,
+    elo0=0.0,
+    elo1=5.0,
+    alpha=0.05,
+    beta=0.05,
+    max_pairs=None,
+    population=None,
+    progress=None,
+    progress_every=0,
 ):
     """Stream `pairs` (each a pentanomial category 0..4, or None for a truncated
     pair to drop) into the SPRT. Stop at a verdict, or report `inconclusive` with
-    the census estimate when the pairs run out or `max_pairs` is reached."""
+    the census estimate when the pairs run out or `max_pairs` is reached. With
+    `progress_every`, emit a running snapshot to `progress` every N pairs."""
     test = Sprt(elo0, elo1, alpha, beta)
     verdict = None
     for category in pairs:
         if category is None:
             continue  # a truncated pair adds no likelihood
         verdict = test.record(category)
+        if progress_every and progress is not None and test.pairs % progress_every == 0:
+            elo, low, high = census_estimate(test.counts, population)
+            print(
+                f"progress pairs={test.pairs} llr={test.llr():+.3f} "
+                f"counts={test.counts} elo={elo:+.1f} ci=[{low:+.1f},{high:+.1f}]",
+                file=progress,
+                flush=True,
+            )
         if verdict is not None:
             break
         if max_pairs is not None and test.pairs >= max_pairs:
@@ -307,6 +325,12 @@ def main():
     )
     parser.add_argument("--seed", type=int, default=0, help="opening-shuffle seed")
     parser.add_argument(
+        "--progress-every",
+        type=int,
+        default=0,
+        help="print a running LLR/census snapshot to stderr every N pairs",
+    )
+    parser.add_argument(
         "--cost-check",
         action="store_true",
         help="also measure node rate and report the keep/drop decision",
@@ -318,6 +342,9 @@ def main():
         help="max node-rate slowdown the candidate may cost",
     )
     args = parser.parse_args()
+
+    # Quiet python-chess's per-command engine logging so long runs stay readable.
+    logging.getLogger("chess.engine").setLevel(logging.WARNING)
 
     openings = match_core.load_openings(args.openings)
     random.Random(args.seed).shuffle(openings)
@@ -341,6 +368,8 @@ def main():
         beta=args.beta,
         max_pairs=args.max_pairs,
         population=len(openings),
+        progress=sys.stderr,
+        progress_every=args.progress_every,
     )
     print(
         f"SPRT [{args.elo0:.0f}, {args.elo1:.0f}] a={args.alpha} b={args.beta}: "
