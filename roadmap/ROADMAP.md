@@ -144,3 +144,19 @@ integration, is the dominant cost.
 | Incremental accumulator — make/unmake deltas, refresh == incremental, node rate (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
 | Measure strength — SPRT vs the PeSTO build: net #3 +115 Elo [+91, +141], accept-H1 (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
 | Docs + glossary + board | Planned | [nnue-eval](specs/nnue-eval/design.md) | Measure strength |
+
+### Epic 6 — Parallel search
+
+Add Lazy SMP — N worker searches sharing one transposition table — so the engine
+deepens within the same time budget. The single-threaded path stays the default
+and bit-identical (the fair-match harness's deterministic basis); the parallel
+speedup is measured at a time control. The TT backend is a monomorphized generic,
+not a runtime strategy.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| Generic TranspositionTable backend (@branransom) | Ready | [parallel-search](specs/parallel-search/design.md) | Rust engine core |
+| Lockless atomic table (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Generic TranspositionTable backend |
+| Lazy SMP coordinator (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Lockless atomic table |
+| Threads option + seam guards (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Lazy SMP coordinator |
+| Measure (time-control SPRT) + docs (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Threads option + seam guards, Fair-match harness + acceptance rule |
