@@ -7,6 +7,8 @@ Add a `## YYYY-MM-DD` heading (newest first) with `- **Creation**` / `- **Update
 
 ## 2026-06-20
 
+- **Update** — `glossary`: added the evaluation terms (king safety, mobility,
+  doubled/isolated/passed pawn) with provenance; pending fair-match SPRT verdicts.
 - **Update** — `glossary`: added the fair-match harness terms (SPRT, pentanomial
   GSPRT, node limit, UHO opening book) with provenance.
 

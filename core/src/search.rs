@@ -498,12 +498,14 @@ mod tests {
 
     #[test]
     fn records_the_pesto_shift_in_the_threatened_mate_position() {
+        // PeSTO moved this quiet choice f8f7 -> f5g6; the pawn-structure term
+        // shifts it back to f8f7. A recorded quiet move, not a forced tactic.
         assert_eq!(
             best(
                 "1r3rk1/p1p3pp/3bp3/1p1P1q2/P3pP2/2B1P2P/1P4Q1/4K1NR b K - 0 1",
                 3
             ),
-            "f5g6"
+            "f8f7"
         );
     }
 

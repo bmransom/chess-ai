@@ -17,6 +17,15 @@ const PHASE_MAX: i32 = 24;
 const PHASE_VALUES: [i32; NUM_PIECE_TYPES] = [0, 1, 1, 2, 4, 0];
 const KING_SHIELD_MG: i32 = 12;
 const KING_RING_ATTACK_MG: [i32; NUM_PIECE_TYPES] = [4, 10, 10, 14, 24, 0];
+/// Per available-square mobility weight, indexed by `PieceType`; pawns and kings
+/// score no mobility.
+const MOBILITY_MG: [i32; NUM_PIECE_TYPES] = [0, 4, 4, 2, 1, 0];
+const MOBILITY_EG: [i32; NUM_PIECE_TYPES] = [0, 4, 5, 4, 2, 0];
+const DOUBLED_PAWN: Score = Score { mg: -10, eg: -12 };
+const ISOLATED_PAWN: Score = Score { mg: -12, eg: -10 };
+/// Passed-pawn bonus indexed by the pawn's relative rank (its own side's view).
+const PASSED_PAWN_MG: [i32; 8] = [0, 5, 10, 18, 30, 48, 72, 0];
+const PASSED_PAWN_EG: [i32; 8] = [0, 12, 24, 40, 64, 96, 140, 0];
 
 pub const MG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [82, 337, 365, 477, 1025, 0];
 pub const EG_PIECE_VALUES: [i32; NUM_PIECE_TYPES] = [94, 281, 297, 512, 936, 0];
@@ -343,12 +352,120 @@ fn king_safety(board: &Board) -> Score {
     total
 }
 
+/// Mobility: each knight, bishop, rook, and queen scores its count of attack
+/// squares not blocked by a friendly piece, weighted per piece type.
+fn mobility(board: &Board) -> Score {
+    let mut total = Score::default();
+    let occupancy = board.occupied();
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let mut friendly: Bitboard = 0;
+        for piece in PieceType::ALL {
+            friendly |= board.pieces(color, piece);
+        }
+        for piece in [
+            PieceType::Knight,
+            PieceType::Bishop,
+            PieceType::Rook,
+            PieceType::Queen,
+        ] {
+            let mut bitboard = board.pieces(color, piece);
+            while bitboard != 0 {
+                let square = pop_lsb(&mut bitboard);
+                let available =
+                    (attack_map(piece, color, square, occupancy) & !friendly).count_ones() as i32;
+                total.mg += available * MOBILITY_MG[piece.index()] * sign;
+                total.eg += available * MOBILITY_EG[piece.index()] * sign;
+            }
+        }
+    }
+    total
+}
+
+fn file_bb(file: u8) -> Bitboard {
+    0x0101_0101_0101_0101u64 << file
+}
+
+fn adjacent_files_bb(file: u8) -> Bitboard {
+    let mut mask = 0;
+    if file > 0 {
+        mask |= file_bb(file - 1);
+    }
+    if file < 7 {
+        mask |= file_bb(file + 1);
+    }
+    mask
+}
+
+/// All squares on the ranks strictly ahead of `rank` from `color`'s view.
+fn forward_ranks_bb(color: Color, rank: u8) -> Bitboard {
+    let mut mask = 0u64;
+    match color {
+        Color::White => {
+            for ahead in (rank + 1)..8 {
+                mask |= 0xFFu64 << (ahead * 8);
+            }
+        }
+        Color::Black => {
+            for ahead in 0..rank {
+                mask |= 0xFFu64 << (ahead * 8);
+            }
+        }
+    }
+    mask
+}
+
+fn relative_rank(color: Color, rank: u8) -> usize {
+    match color {
+        Color::White => rank as usize,
+        Color::Black => (7 - rank) as usize,
+    }
+}
+
+/// Pawn structure: penalize doubled and isolated pawns; reward passed pawns,
+/// rank-scaled and larger in the endgame. Computed from the pawn bitboards.
+fn pawn_structure(board: &Board) -> Score {
+    let mut total = Score::default();
+    for color in [Color::White, Color::Black] {
+        let sign = if color == Color::White { 1 } else { -1 };
+        let friendly = board.pieces(color, PieceType::Pawn);
+        let enemy = board.pieces(color.opponent(), PieceType::Pawn);
+
+        for file in 0..8u8 {
+            let count = (friendly & file_bb(file)).count_ones() as i32;
+            if count > 1 {
+                total.mg += DOUBLED_PAWN.mg * (count - 1) * sign;
+                total.eg += DOUBLED_PAWN.eg * (count - 1) * sign;
+            }
+        }
+
+        let mut pawns = friendly;
+        while pawns != 0 {
+            let square = pop_lsb(&mut pawns);
+            let adjacent = adjacent_files_bb(file_of(square));
+            if friendly & adjacent == 0 {
+                total.mg += ISOLATED_PAWN.mg * sign;
+                total.eg += ISOLATED_PAWN.eg * sign;
+            }
+            let ahead = forward_ranks_bb(color, rank_of(square));
+            if enemy & (file_bb(file_of(square)) | adjacent) & ahead == 0 {
+                let rank = relative_rank(color, rank_of(square));
+                total.mg += PASSED_PAWN_MG[rank] * sign;
+                total.eg += PASSED_PAWN_EG[rank] * sign;
+            }
+        }
+    }
+    total
+}
+
 /// Absolute (white-positive) evaluation: tapered material plus piece-square bonus.
 pub fn evaluate(board: &Board) -> i32 {
     let mut total = material_placement(board);
     let king_safety = king_safety(board);
-    total.mg += king_safety.mg;
-    total.eg += king_safety.eg;
+    let mobility = mobility(board);
+    let pawn_structure = pawn_structure(board);
+    total.mg += king_safety.mg + mobility.mg + pawn_structure.mg;
+    total.eg += king_safety.eg + mobility.eg + pawn_structure.eg;
     total.tapered(game_phase(board))
 }
 
@@ -380,7 +497,49 @@ mod tests {
     fn tapered_evaluation_uses_pesto_material_and_position() {
         let board = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
 
-        assert_eq!(evaluate(&board), 307);
+        assert_eq!(material_placement(&board).tapered(game_phase(&board)), 307);
+    }
+
+    #[test]
+    fn mobility_rewards_the_freer_side() {
+        let central = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
+        let cornered = Board::from_fen("4k3/8/8/8/8/8/8/N3K3 w - - 0 1").unwrap();
+
+        assert!(mobility(&central).mg > mobility(&cornered).mg);
+    }
+
+    #[test]
+    fn mobility_is_symmetric_at_the_start() {
+        assert_eq!(mobility(&Board::startpos()), Score::default());
+    }
+
+    #[test]
+    fn pawn_structure_penalizes_doubled_pawns() {
+        let doubled = Board::from_fen("4k3/2p1p3/8/8/8/3P4/3P4/4K3 w - - 0 1").unwrap();
+        let spread = Board::from_fen("4k3/2p1p3/8/8/8/2PP4/8/4K3 w - - 0 1").unwrap();
+
+        assert!(pawn_structure(&doubled).mg < pawn_structure(&spread).mg);
+    }
+
+    #[test]
+    fn pawn_structure_penalizes_isolated_pawns() {
+        let isolated = Board::from_fen("4k3/8/8/8/8/8/P1P5/4K3 w - - 0 1").unwrap();
+        let connected = Board::from_fen("4k3/8/8/8/8/8/PP6/4K3 w - - 0 1").unwrap();
+
+        assert!(pawn_structure(&isolated).mg < pawn_structure(&connected).mg);
+    }
+
+    #[test]
+    fn pawn_structure_rewards_passed_pawns() {
+        let passed = Board::from_fen("4k3/8/8/4P3/8/8/8/4K3 w - - 0 1").unwrap();
+        let blocked = Board::from_fen("4k3/4p3/8/4P3/8/8/8/4K3 w - - 0 1").unwrap();
+
+        assert!(pawn_structure(&passed).mg > pawn_structure(&blocked).mg);
+    }
+
+    #[test]
+    fn pawn_structure_is_symmetric_at_the_start() {
+        assert_eq!(pawn_structure(&Board::startpos()), Score::default());
     }
 
     #[test]

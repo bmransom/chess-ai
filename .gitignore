@@ -28,3 +28,6 @@ knowledge/node_modules/
 knowledge/.vitepress/cache/
 knowledge/.vitepress/dist/
 knowledge/.vitepress/sidebar.generated.json
+
+# measure_terms.sh scratch worktrees
+.measure/

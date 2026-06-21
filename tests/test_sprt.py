@@ -101,21 +101,23 @@ def test_classify_crosses_the_wald_bounds():
 
 def test_run_sprt_accepts_h1_on_a_strong_candidate():
     stream = [4, 3, 4, 3, 4, 2, 4, 3, 1, 4] * 20
-    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0)
+    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05)
     assert result["verdict"] == sprt.ACCEPT_H1
     assert result["llr"] > 0
 
 
 def test_run_sprt_accepts_h0_on_a_weak_candidate():
     stream = [0, 1, 0, 1, 0, 2, 0, 1, 3, 0] * 20
-    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0)
+    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05)
     assert result["verdict"] == sprt.ACCEPT_H0
     assert result["llr"] < 0
 
 
 def test_run_sprt_inconclusive_on_exhaustion_reports_census():
     stream = [2, 3, 1, 2, 2, 3, 1, 2] * 2  # balanced, too short to cross a bound
-    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0, max_pairs=16, population=16)
+    result = sprt.run_sprt(
+        stream, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05, max_pairs=16, population=16
+    )
     assert result["verdict"] == sprt.INCONCLUSIVE
     assert result["pairs"] == 16
     # full exhaustion: the finite-population correction collapses the interval
@@ -124,7 +126,9 @@ def test_run_sprt_inconclusive_on_exhaustion_reports_census():
 
 def test_run_sprt_drops_truncated_pairs():
     stream = [4, None, 4, None, 4]
-    result = sprt.run_sprt(stream, elo0=0.0, elo1=5.0, max_pairs=10)
+    result = sprt.run_sprt(
+        stream, elo0=0.0, elo1=5.0, alpha=0.05, beta=0.05, max_pairs=10
+    )
     assert result["pairs"] == 3  # the two None pairs were dropped
 
 
@@ -150,7 +154,7 @@ def test_cost_gate_fails_a_slow_candidate():
 
 
 def test_cost_gate_passes_a_faster_candidate():
-    assert sprt.cost_gate(1_200_000, 1_000_000) is True
+    assert sprt.cost_gate(1_200_000, 1_000_000, max_slowdown=0.05) is True
 
 
 # Local approx helper to avoid importing pytest just for approx in a plain assert.
