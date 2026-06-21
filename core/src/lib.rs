@@ -24,7 +24,7 @@ use pyo3::types::{PyDict, PyList};
 use board::Board;
 use chess_move::parse_uci;
 use movegen::generate_legal;
-use tt::{Flag, VecTt};
+use tt::{ExclusiveTranspositionTable, Flag};
 
 /// The UCI null move, returned when no legal move exists.
 const NULL_MOVE: &str = "0000";
@@ -55,13 +55,13 @@ impl CapturedNode {
 }
 
 /// Searcher — owns a Board and a transposition table and returns the best Move
-/// for the current position. The Python wrappers hold one per game. `unsendable`
-/// because the `VecTt` backend is `RefCell`-backed (`!Sync`): the engine object
-/// is thread-affine to the Python thread that drives it.
+/// for the current position. The Python wrappers hold one per game. It is
+/// `unsendable` because the `ExclusiveTranspositionTable` backend is `RefCell`-backed
+/// (`!Sync`): the engine object is thread-affine to the Python thread that drives it.
 #[pyclass(unsendable)]
 struct Searcher {
     board: Board,
-    transposition_table: VecTt,
+    transposition_table: ExclusiveTranspositionTable,
     last_decision_tree: Option<DecisionTree>,
     /// The NNUE network, when one has been loaded; otherwise leaf positions use
     /// the hand-written evaluation. Engine configuration, not game state — it
@@ -75,7 +75,7 @@ impl Searcher {
     fn new() -> Self {
         Searcher {
             board: Board::startpos(),
-            transposition_table: VecTt::new(),
+            transposition_table: ExclusiveTranspositionTable::new(),
             last_decision_tree: None,
             eval_net: None,
         }
@@ -85,7 +85,7 @@ impl Searcher {
     /// any captured decision tree. The loaded NNUE network, if any, is kept.
     fn new_game(&mut self) {
         self.board = Board::startpos();
-        self.transposition_table = VecTt::new();
+        self.transposition_table = ExclusiveTranspositionTable::new();
         self.last_decision_tree = None;
     }
 

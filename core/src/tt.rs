@@ -1,7 +1,8 @@
 //! TranspositionTable — a Zobrist-keyed cache of evaluated positions, a port of
 //! `src/transposition_table.py` with the same replace-by-depth-and-age policy.
-//! The cache is a trait with two backends: `VecTt` for single-threaded search
-//! (`Threads = 1`) and, later, a lockless atomic table for parallel search.
+//! The cache is a trait with two backends: `ExclusiveTranspositionTable` for
+//! single-threaded search (`Threads = 1`) and, later, a lockless atomic table
+//! for parallel search.
 
 use std::cell::RefCell;
 
@@ -30,9 +31,10 @@ const TABLE_SIZE: usize = 1_048_583;
 
 /// A Zobrist-keyed cache of evaluated positions. `probe` and `replace` take
 /// `&self` so one table can back several searches at once; the backend supplies
-/// the synchronization (`RefCell` for the single-threaded `VecTt`, atomics for
-/// the lockless parallel table). The Searcher is generic over this trait, so the
-/// backend is chosen once at search entry with no per-node virtual call.
+/// the synchronization (`RefCell` for the single-threaded
+/// `ExclusiveTranspositionTable`, atomics for the lockless parallel table). The
+/// Searcher is generic over this trait, so the backend is chosen once at search
+/// entry with no per-node virtual call.
 pub trait TranspositionTable {
     /// The stored entry whose key matches, regardless of depth. The search
     /// decides whether the entry is deep enough to cut; even a shallow entry
@@ -47,19 +49,19 @@ pub trait TranspositionTable {
 /// The single-threaded backend: today's `Vec` slot table behind `RefCell`
 /// interior mutability. Used for `Threads = 1`; with one thread the borrow
 /// always succeeds, so it is bit-identical to the original engine.
-pub struct VecTt {
+pub struct ExclusiveTranspositionTable {
     table: RefCell<Vec<Option<HashEntry>>>,
 }
 
-impl Default for VecTt {
+impl Default for ExclusiveTranspositionTable {
     fn default() -> Self {
-        VecTt::new()
+        ExclusiveTranspositionTable::new()
     }
 }
 
-impl VecTt {
-    pub fn new() -> VecTt {
-        VecTt {
+impl ExclusiveTranspositionTable {
+    pub fn new() -> ExclusiveTranspositionTable {
+        ExclusiveTranspositionTable {
             table: RefCell::new(vec![None; TABLE_SIZE]),
         }
     }
@@ -75,7 +77,7 @@ impl VecTt {
     }
 }
 
-impl TranspositionTable for VecTt {
+impl TranspositionTable for ExclusiveTranspositionTable {
     fn probe(&self, zobrist: u64) -> Option<HashEntry> {
         let index = (zobrist % TABLE_SIZE as u64) as usize;
         match self.table.borrow()[index] {
@@ -114,7 +116,7 @@ mod tests {
 
     #[test]
     fn stores_into_an_empty_slot() {
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         let stored = entry(5, 0);
         table.replace(stored);
         assert_eq!(table.probe(0xABCD), Some(stored));
@@ -122,7 +124,7 @@ mod tests {
 
     #[test]
     fn replaces_when_age_is_greater() {
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         table.replace(entry(5, 0));
         let newer = entry(5, 2);
         table.replace(newer);
@@ -131,7 +133,7 @@ mod tests {
 
     #[test]
     fn replaces_when_depth_is_greater_and_age_equal() {
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         table.replace(entry(4, 0));
         let deeper = entry(5, 0);
         table.replace(deeper);
@@ -140,7 +142,7 @@ mod tests {
 
     #[test]
     fn keeps_entry_when_depth_is_lesser_and_age_equal() {
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         let deeper = entry(5, 0);
         table.replace(deeper);
         table.replace(entry(4, 0));

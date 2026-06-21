@@ -1,6 +1,6 @@
 ---
 title: Parallel search — design
-description: Lazy SMP with a monomorphized generic over two TT backends — today's exclusive VecTt for Threads=1 and a lockless single-u64 AtomicTt for Threads>1.
+description: Lazy SMP with a monomorphized generic over two TranspositionTable backends — an exclusive table for Threads=1 and a lockless single-u64 table for Threads>1.
 ---
 
 > **Status:** Ready — tracked on the [board](../../ROADMAP.md). Derived from the
@@ -31,7 +31,7 @@ runs today's iterative-deepening loop on a **cloned `Board`** (`Board: Clone`) w
 its own `history`, `killers`, `pv_table`, `position_history`, and `nodes`. Workers
 share only:
 
-- the `AtomicTt` (a `&` borrow through the scope),
+- the `LocklessTranspositionTable` (a `&` borrow through the scope),
 - the immutable `deadline`,
 - an `AtomicBool` stop flag,
 - an `AtomicU64` aggregate node counter.
@@ -60,15 +60,15 @@ backend is selected once, cold, at search entry via a monomorphized generic
 ## Two TT backends behind one trait
 
 The `TranspositionTable` becomes a trait — `probe(&self, zobrist) -> Option<HashEntry>`
-and `replace(&self, entry)` — and today's concrete table is renamed `VecTt`, one of
+and `replace(&self, entry)` — and today's concrete table is renamed `ExclusiveTranspositionTable`, one of
 its two implementations. `HashEntry` stays the decoded semantic record.
 
-- **`VecTt`** — today's `Vec<Option<HashEntry>>` with the same replace-by-age-or-depth
+- **`ExclusiveTranspositionTable`** — today's `Vec<Option<HashEntry>>` with the same replace-by-age-or-depth
   policy, used for `Threads = 1`. The `&self` signature gives it interior mutability
   (`RefCell`); with one thread the borrow always succeeds and the behavior is
   identical. Bit-identity is therefore a property of the type, guarded by the
   determinism test — not a packing argument.
-- **`AtomicTt`** — the Hyatt lockless slot `{ key: AtomicU64, data: AtomicU64 }`
+- **`LocklessTranspositionTable`** — the Hyatt key-XOR-data slot `{ key: AtomicU64, data: AtomicU64 }`
   with `key = zobrist ^ data`, used for `Threads > 1`.
 
 **Packing (one u64).** The entry fits in 60 bits — `best_move` 16 (the `0x0000`
@@ -88,7 +88,7 @@ under `Threads > 1` anyway.
 
 ## Determinism and measurement
 
-- **`Threads = 1` is bit-identical** because it instantiates `Searcher<VecTt>` —
+- **`Threads = 1` is bit-identical** because it instantiates `Searcher<ExclusiveTranspositionTable>` —
   today's exact access pattern and policy. The eval-term measurements hold by
   construction; a `(best_move, node_count)` baseline test over a position set guards
   it (extending AC-1.3 of the fair-match harness).
@@ -141,7 +141,7 @@ atomic table, so `/transposition_table` snapshot-decodes the slots; it runs at
   a second word and a `mix()` only widen the torn-read window.
 - **Two concrete code paths** (no generic). Rejected: duplicates the negamax logic;
   the monomorphized generic matches the repo's `Searcher<O: MoveOrderer>` and the
-  determinism guard de-risks the `VecTt` interior-mutability change.
+  determinism guard de-risks the `ExclusiveTranspositionTable` interior-mutability change.
 
 ## Risks
 

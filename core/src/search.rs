@@ -529,11 +529,11 @@ fn compute_budget_ms(side: Color, limits: &SearchLimits) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tt::VecTt;
+    use crate::tt::ExclusiveTranspositionTable;
 
-    fn searcher_for(fen: &str) -> (Board, VecTt) {
+    fn searcher_for(fen: &str) -> (Board, ExclusiveTranspositionTable) {
         let board = Board::from_fen(fen).unwrap();
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         (board, table)
     }
 
@@ -846,7 +846,7 @@ mod tests {
     #[test]
     fn killers_and_history_update_on_a_quiet_cutoff() {
         let mut board = Board::from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").unwrap();
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         let mut searcher = Searcher::new(&table);
 
         // AC-3.1: a new Searcher starts empty.
@@ -880,7 +880,7 @@ mod tests {
     fn history_accumulates_across_iterations() {
         // AC-3.2: the table fills as iterative deepening runs.
         let mut board = Board::from_fen(MIDGAME).unwrap();
-        let table = VecTt::new();
+        let table = ExclusiveTranspositionTable::new();
         let mut searcher = Searcher::new(&table);
         searcher.search(
             &mut board,
@@ -930,7 +930,8 @@ mod tests {
     #[test]
     fn threads_one_search_is_bit_identical() {
         // Captured on the single-`&mut TranspositionTable` engine before the
-        // generic-TT refactor. `Searcher<VecTt>` (Threads=1) must reproduce it.
+        // generic-TT refactor. `Searcher<ExclusiveTranspositionTable>`
+        // (Threads=1) must reproduce it.
         let expected = [
             ("b1c3", 20_000),
             ("b1c3", 20_000),
