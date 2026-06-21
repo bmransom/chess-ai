@@ -68,8 +68,8 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
 }
 
-pub struct Searcher<'a> {
-    transposition_table: &'a mut TranspositionTable,
+pub struct Searcher<'a, Tt: TranspositionTable> {
+    transposition_table: &'a Tt,
     /// Zobrist keys along the current line, for threefold-repetition detection.
     position_history: Vec<u64>,
     /// History-heuristic scores, indexed `[side][from][to]` flattened.
@@ -91,8 +91,8 @@ pub struct Searcher<'a> {
     accumulator: Option<Accumulator>,
 }
 
-impl<'a> Searcher<'a> {
-    pub fn new(transposition_table: &'a mut TranspositionTable) -> Searcher<'a> {
+impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
+    pub fn new(transposition_table: &'a Tt) -> Searcher<'a, Tt> {
         crate::attacks::warm();
         Searcher {
             transposition_table,
@@ -111,7 +111,7 @@ impl<'a> Searcher<'a> {
 
     /// Evaluate leaf positions with `net` instead of the hand-written
     /// evaluation. `None` keeps the hand-written evaluation. Chains onto `new`.
-    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a> {
+    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a, Tt> {
         self.eval_net = net;
         self
     }
@@ -529,16 +529,17 @@ fn compute_budget_ms(side: Color, limits: &SearchLimits) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tt::VecTt;
 
-    fn searcher_for(fen: &str) -> (Board, TranspositionTable) {
+    fn searcher_for(fen: &str) -> (Board, VecTt) {
         let board = Board::from_fen(fen).unwrap();
-        let table = TranspositionTable::new();
+        let table = VecTt::new();
         (board, table)
     }
 
     fn best(fen: &str, depth: i32) -> String {
-        let (mut board, mut table) = searcher_for(fen);
-        let mut searcher = Searcher::new(&mut table);
+        let (mut board, table) = searcher_for(fen);
+        let mut searcher = Searcher::new(&table);
         searcher
             .best_move(&mut board, depth)
             .expect("a legal move exists")
@@ -546,8 +547,8 @@ mod tests {
     }
 
     fn run_search(fen: &str, limits: SearchLimits) -> SearchResult {
-        let (mut board, mut table) = searcher_for(fen);
-        let mut searcher = Searcher::new(&mut table);
+        let (mut board, table) = searcher_for(fen);
+        let mut searcher = Searcher::new(&table);
         searcher.search(&mut board, &limits, Instant::now())
     }
 
@@ -564,8 +565,8 @@ mod tests {
         let net = crate::nnue::test_network();
         let castling = "r3k2r/pppqbppp/2npbn2/4p3/4P3/2NPBN2/PPPQBPPP/R3K2R w KQkq - 0 1";
         for fen in [STARTPOS, MIDGAME, castling] {
-            let (mut board, mut table) = searcher_for(fen);
-            let mv = Searcher::new(&mut table)
+            let (mut board, table) = searcher_for(fen);
+            let mv = Searcher::new(&table)
                 .with_eval_net(Some(&net))
                 .best_move(&mut board, 4)
                 .expect("a legal move exists");
@@ -826,12 +827,12 @@ mod tests {
     #[test]
     fn a_warm_table_reduces_nodes() {
         fn nodes(fen: &str, depth: i32, warm: bool) -> u64 {
-            let (mut board, mut table) = searcher_for(fen);
+            let (mut board, table) = searcher_for(fen);
             if warm {
-                let mut warmup = Searcher::new(&mut table);
+                let mut warmup = Searcher::new(&table);
                 warmup.best_move(&mut board, depth - 1);
             }
-            let mut searcher = Searcher::new(&mut table);
+            let mut searcher = Searcher::new(&table);
             searcher.best_move(&mut board, depth);
             searcher.nodes
         }
@@ -845,8 +846,8 @@ mod tests {
     #[test]
     fn killers_and_history_update_on_a_quiet_cutoff() {
         let mut board = Board::from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").unwrap();
-        let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table);
+        let table = VecTt::new();
+        let mut searcher = Searcher::new(&table);
 
         // AC-3.1: a new Searcher starts empty.
         assert!(searcher.killers.iter().all(|slot| *slot == [None, None]));
@@ -879,8 +880,8 @@ mod tests {
     fn history_accumulates_across_iterations() {
         // AC-3.2: the table fills as iterative deepening runs.
         let mut board = Board::from_fen(MIDGAME).unwrap();
-        let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table);
+        let table = VecTt::new();
+        let mut searcher = Searcher::new(&table);
         searcher.search(
             &mut board,
             &SearchLimits {
@@ -890,5 +891,58 @@ mod tests {
             Instant::now(),
         );
         assert!(searcher.history.iter().any(|&score| score > 0));
+    }
+
+    // --- Parallel search Wave 1: the Threads=1 determinism basis (AC-2.2) ---
+
+    /// A node-limited search over a fixed position set. Node counts are pure
+    /// logic (not timing), so the `(best_move, nodes)` pairs are reproducible
+    /// across machines — the basis a `Threads=1` engine must match bit-for-bit.
+    const DETERMINISM_POSITIONS: [&str; 6] = [
+        STARTPOS,
+        MIDGAME,
+        "1r3rk1/p1p3pp/3bp3/1p1P1q2/P3pP2/2B1P2P/1P4Q1/4K1NR b K - 0 1",
+        "1r1qr3/pppbbQ1k/2n1p1p1/2PpP3/3P4/2P2N2/P1B2PP1/1RB1K3 b - - 0 1",
+        "2r3k1/6p1/5p1p/p2r4/3p4/6B1/PPP2PPP/R3R1K1 w - - 0 1",
+        "r5rk/5p1p/5R2/4B3/8/8/7P/7K w",
+    ];
+
+    fn determinism_baseline() -> Vec<(String, u64)> {
+        DETERMINISM_POSITIONS
+            .iter()
+            .map(|fen| {
+                let result = run_search(
+                    fen,
+                    SearchLimits {
+                        max_depth: 64,
+                        node_limit: Some(20_000),
+                        ..Default::default()
+                    },
+                );
+                (
+                    result.best_move.map(|mv| mv.to_uci()).unwrap_or_default(),
+                    result.nodes,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn threads_one_search_is_bit_identical() {
+        // Captured on the single-`&mut TranspositionTable` engine before the
+        // generic-TT refactor. `Searcher<VecTt>` (Threads=1) must reproduce it.
+        let expected = [
+            ("b1c3", 20_000),
+            ("b1c3", 20_000),
+            ("f8f7", 20_000),
+            ("h7h8", 2_650),
+            ("a1c1", 20_000),
+            ("f6a6", 190),
+        ];
+        let expected: Vec<(String, u64)> = expected
+            .iter()
+            .map(|(mv, nodes)| (mv.to_string(), *nodes))
+            .collect();
+        assert_eq!(determinism_baseline(), expected);
     }
 }
