@@ -18,7 +18,7 @@ description: Lazy SMP with a monomorphized generic over two TranspositionTable b
 | Backend dispatch | Monomorphized generic `Searcher<Tt>` | The repo's own escape hatch (`Searcher<O: MoveOrderer>`); zero per-node virtual calls. |
 | TT (parallel) | Lockless single-u64 atomic | Hyatt key-XOR-data; no locks on the hot path, no `unsafe`. |
 | `Threads = 1` | Bit-identical to today | The deterministic basis the fair-match harness measures against. |
-| `go nodes` | Forces one thread | The aggregate node counter is a race — node mode is unreproducible with N>1. |
+| `go nodes` | Forces one thread | The summed node count is non-deterministic — node mode is unreproducible with N>1. |
 | Parallel Elo | Time-control SPRT | Fixed-node's premise is determinism, which parallel search abandons. |
 
 ## Lazy SMP coordinator
@@ -32,11 +32,12 @@ its own `history`, `killers`, `pv_table`, `position_history`, and `nodes`. Worke
 share only:
 
 - the `LocklessTranspositionTable` (a `&` borrow through the scope),
-- the immutable `deadline`,
-- an `AtomicBool` stop flag,
-- an `AtomicU64` aggregate node counter.
+- the immutable `deadline` (each worker computes the same one from `limits` + `now`),
+- an `AtomicBool` stop flag, so the first worker to reach the budget halts its peers.
 
-Thread 0's completed result is returned; helper threads exist only to deepen the
+Thread 0's completed result is returned, with its `nodes` replaced by the workers'
+sum (each worker's count is added up at join — no per-node shared counter, so no
+hot-path contention). Helper threads exist only to deepen the
 shared TT and desync onto other lines (the shared bounds naturally diverge the
 workers' trees). YBWC and root-splitting are rejected: weaving shared alpha,
 root-move arbitration, and cancellation through the serial alpha-beta move loop is
@@ -94,10 +95,9 @@ under `Threads > 1` anyway.
   it (extending AC-1.3 of the fair-match harness).
 - **`go nodes` forces one thread** by a hard guard in the PyO3 seam: when
   `node_limit.is_some()`, the single-thread path runs regardless of `thread_count`.
-  The aggregate node counter is incremented by racing workers, so *which* worker
-  crosses the limit first is timing-dependent — node mode is unreproducible *in
-  principle* with N>1, and per-thread sub-budgets don't save it (shared-TT desync
-  makes each worker's tree non-deterministic).
+  Under `Threads > 1` the workers desync through the shared TT, so the summed node
+  count varies run to run — node mode is unreproducible *in principle* with N>1, and
+  per-thread sub-budgets don't save it.
 - **Parallel Elo** is a time-control SPRT (`Threads = 1` vs `N` at equal wall-clock),
   never the fixed-node SPRT (whose premise is determinism). Summed worker nodes go
   to UCI `info nodes` (NPS is meaningful) but never to a term-retention decision.

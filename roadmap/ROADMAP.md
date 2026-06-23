@@ -157,6 +157,6 @@ not a runtime strategy.
 |---|---|---|---|
 | Generic TranspositionTable backend (@branransom) | Done | [parallel-search](specs/parallel-search/design.md) | Rust engine core |
 | Lockless atomic table (@branransom) | Done | [parallel-search](specs/parallel-search/design.md) | Generic TranspositionTable backend |
-| Lazy SMP coordinator (@branransom) | Ready | [parallel-search](specs/parallel-search/design.md) | Lockless atomic table |
-| Threads option + seam guards (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Lazy SMP coordinator |
+| Lazy SMP coordinator (@branransom) | Done | [parallel-search](specs/parallel-search/design.md) | Lockless atomic table |
+| Threads option + seam guards (@branransom) | Ready | [parallel-search](specs/parallel-search/design.md) | Lazy SMP coordinator |
 | Measure (time-control SPRT) + docs (@branransom) | Planned | [parallel-search](specs/parallel-search/design.md) | Threads option + seam guards, Fair-match harness + acceptance rule |

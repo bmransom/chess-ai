@@ -2,6 +2,7 @@
 //! transposition table, mate-distance scoring, and a triangular principal
 //! variation. Deepens one ply at a time within a time budget.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::board::Board;
@@ -80,6 +81,10 @@ pub struct Searcher<'a, Tt: TranspositionTable> {
     deadline: Option<Instant>,
     node_limit: Option<u64>,
     stopped: bool,
+    /// Set when running as a parallel worker: a stop flag shared with peer workers
+    /// so they halt together when the budget expires. `None` single-threaded, which
+    /// keeps `should_stop` — and the whole `Threads = 1` path — bit-identical.
+    shared_stop: Option<&'a AtomicBool>,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
     /// The NNUE network, when one is loaded; otherwise the hand-written
@@ -93,6 +98,20 @@ pub struct Searcher<'a, Tt: TranspositionTable> {
 
 impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
     pub fn new(transposition_table: &'a Tt) -> Searcher<'a, Tt> {
+        Searcher::with_optional_stop(transposition_table, None)
+    }
+
+    /// A worker for the parallel coordinator: it shares `shared_stop` with its peers
+    /// so they all halt together once one of them reaches the budget.
+    #[allow(dead_code)] // the coordinator wires this in; reached via the Threads option in Wave 4
+    fn new_worker(transposition_table: &'a Tt, shared_stop: &'a AtomicBool) -> Searcher<'a, Tt> {
+        Searcher::with_optional_stop(transposition_table, Some(shared_stop))
+    }
+
+    fn with_optional_stop(
+        transposition_table: &'a Tt,
+        shared_stop: Option<&'a AtomicBool>,
+    ) -> Searcher<'a, Tt> {
         crate::attacks::warm();
         Searcher {
             transposition_table,
@@ -103,6 +122,7 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
             deadline: None,
             node_limit: None,
             stopped: false,
+            shared_stop,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
             eval_net: None,
             accumulator: None,
@@ -247,6 +267,14 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
         if self.stopped {
             return true;
         }
+        // A peer worker reached the budget and signalled; stop with them. `None`
+        // single-threaded, so this branch is inert and the path stays bit-identical.
+        if let Some(shared_stop) = self.shared_stop {
+            if shared_stop.load(Ordering::Relaxed) {
+                self.stopped = true;
+                return true;
+            }
+        }
         // The node budget is checked every node (not batched), so even a tiny limit
         // binds exactly; the clock is polled in batches to amortize `Instant::now`.
         if let Some(limit) = self.node_limit {
@@ -259,6 +287,10 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
             if let Some(deadline) = self.deadline {
                 if Instant::now() >= deadline {
                     self.stopped = true;
+                    // Signal peer workers so they stop at their next check.
+                    if let Some(shared_stop) = self.shared_stop {
+                        shared_stop.store(true, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -456,6 +488,49 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
     }
 }
 
+/// Lazy SMP: run `thread_count` independent searches that share one transposition
+/// table and return thread 0's result. Each worker runs the unchanged
+/// iterative-deepening loop on its own cloned `Board` and per-worker state; the
+/// workers share only the table (by `&`), the deadline (each computes the same one
+/// from `limits` and `now`), and a stop flag so they halt together. The reported
+/// `nodes` is the workers' sum (UCI `info nodes`).
+///
+/// The table must be `Sync`, so only `LocklessTranspositionTable` reaches this
+/// path; the single-threaded `ExclusiveTranspositionTable` is `!Sync` and cannot.
+#[allow(dead_code)] // reached once the Threads option selects it in Wave 4
+pub fn search_parallel<Tt: TranspositionTable + Sync>(
+    board: &Board,
+    limits: &SearchLimits,
+    now: Instant,
+    transposition_table: &Tt,
+    thread_count: usize,
+) -> SearchResult {
+    let shared_stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..thread_count.max(1))
+            .map(|_| {
+                let mut worker_board = board.clone();
+                let shared_stop = &shared_stop;
+                scope.spawn(move || {
+                    let mut searcher = Searcher::new_worker(transposition_table, shared_stop);
+                    searcher.search(&mut worker_board, limits, now)
+                })
+            })
+            .collect();
+        let results: Vec<SearchResult> = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("a search worker panicked"))
+            .collect();
+        let total_nodes: u64 = results.iter().map(|result| result.nodes).sum();
+        let mut result = results
+            .into_iter()
+            .next()
+            .expect("thread_count is at least 1");
+        result.nodes = total_nodes;
+        result
+    })
+}
+
 pub fn is_mate_score(score: i32) -> bool {
     score.abs() >= MATE_THRESHOLD
 }
@@ -529,7 +604,7 @@ fn compute_budget_ms(side: Color, limits: &SearchLimits) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tt::ExclusiveTranspositionTable;
+    use crate::tt::{ExclusiveTranspositionTable, LocklessTranspositionTable};
 
     fn searcher_for(fen: &str) -> (Board, ExclusiveTranspositionTable) {
         let board = Board::from_fen(fen).unwrap();
@@ -945,5 +1020,71 @@ mod tests {
             .map(|(mv, nodes)| (mv.to_string(), *nodes))
             .collect();
         assert_eq!(determinism_baseline(), expected);
+    }
+
+    // --- Parallel search Wave 3: the Lazy SMP coordinator ---
+
+    fn parallel_depth_four(fen: &str, threads: usize) -> SearchResult {
+        let table = LocklessTranspositionTable::new();
+        let board = Board::from_fen(fen).unwrap();
+        let limits = SearchLimits {
+            max_depth: 4,
+            ..Default::default()
+        };
+        search_parallel(&board, &limits, Instant::now(), &table, threads)
+    }
+
+    #[test]
+    fn parallel_search_returns_thread_zero_legal_move() {
+        // AC-1.1, AC-1.2: workers share one table; thread 0's move (and its PV head)
+        // come back, and the move is legal in the root position.
+        let result = parallel_depth_four(MIDGAME, 4);
+        let best = result.best_move.expect("a legal move");
+        let mut board = Board::from_fen(MIDGAME).unwrap();
+        assert!(generate_legal(&mut board).contains(&best));
+        assert_eq!(result.principal_variation.first().copied(), Some(best));
+    }
+
+    #[test]
+    fn parallel_search_stops_within_the_budget() {
+        // AC-1.3: the shared deadline halts every worker and the coordinator returns
+        // a completed iteration's move promptly.
+        let table = LocklessTranspositionTable::new();
+        let board = Board::from_fen(MIDGAME).unwrap();
+        let limits = SearchLimits {
+            max_depth: 64,
+            move_time_ms: Some(200),
+            ..Default::default()
+        };
+        let result = search_parallel(&board, &limits, Instant::now(), &table, 4);
+        assert!(result.best_move.is_some());
+        assert!(result.elapsed_ms < 2_000, "elapsed {}", result.elapsed_ms);
+    }
+
+    #[test]
+    fn parallel_search_finds_the_forced_mate() {
+        // Correctness through the shared table: thread 0 still proves the mate.
+        let result = parallel_depth_four("r5rk/5p1p/5R2/4B3/8/8/7P/7K w", 4);
+        assert!(is_mate_score(result.score), "score {}", result.score);
+    }
+
+    #[test]
+    fn parallel_search_sums_worker_nodes() {
+        // AC-5.2: the reported `nodes` is the workers' sum, so four workers report at
+        // least as many nodes as a single-threaded search of the same position.
+        let parallel = parallel_depth_four(MIDGAME, 4);
+        let single = run_search(
+            MIDGAME,
+            SearchLimits {
+                max_depth: 4,
+                ..Default::default()
+            },
+        );
+        assert!(
+            parallel.nodes >= single.nodes,
+            "parallel {} single {}",
+            parallel.nodes,
+            single.nodes
+        );
     }
 }
