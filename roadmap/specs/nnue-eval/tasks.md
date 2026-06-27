@@ -42,11 +42,22 @@ refresh; the incremental accumulator is Wave 3.
 - **2.1 Provision the teacher.** Add a fetch step for the Stockfish binary
   (analogous to `fetch_uho.py`); record its identity and version. *Gate: AC-2.3 —
   the teacher provisions reproducibly and answers over UCI.*
+  **Done (2026-06-27):** `scripts/fetch_stockfish.py` downloads the pinned
+  `sf_17.1` release (GPL-3.0; only its eval labels are used), installs it to
+  `bin/stockfish` (git-ignored, like the UHO book), and verifies the handshake —
+  `id name Stockfish 17.1`, `uciok`. ruff clean.
 - **2.2 Generate + label.** Extend `selfplay.py` to emit positions (FEN, game
   result) from varied book openings; filter to quiet positions; label each with
   the teacher's eval at a fixed depth/node budget; write bulletformat. *Gate:
   AC-2.1–2.2 — a small run produces a well-formed teacher-labeled dataset of quiet
   positions; the position count and teacher budget are recorded.*
+  **In progress (2026-06-27):** `scripts/label.py` provides the labeling
+  primitives — `teacher_eval` (white-positive, mate-capped centipawns via the
+  provisioned teacher) and `is_quiet` (no check, no pending capture) — verified
+  against `bin/stockfish` (startpos `+47`; `e2e4 d7d5` flagged non-quiet for the
+  pending `exd5`). Remaining: self-play position emission and the bulletformat
+  writer — the writer pairs with Wave 3's `bullet` setup so the binary format is
+  validated against the trainer rather than written blind.
 - **2.3 Train and export.** Run bullet on `(768 → 256)×2 → 1`; export the
   quantized net at the agreed `QA`/`QB`/`SCALE`. *Gate: AC-2.4 — a net file loads
   via Wave 1's loader; the training loss curve and position count are recorded.*

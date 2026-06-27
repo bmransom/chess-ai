@@ -137,7 +137,7 @@ integration, is the dominant cost.
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | Borrow the architecture — net format, loader, full-refresh inference, flagged drop-in (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Evaluation, Iterative deepening |
-| Training pipeline — teacher-labeled self-play data, bulletformat, bullet train + export | Planned | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
+| Training pipeline — teacher-labeled self-play data, bulletformat, bullet train + export (@bmransom, `feat/nnue-eval`) | In progress | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
 | Incremental accumulator — make/unmake deltas, refresh == incremental, node rate | Planned | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
 | Measure strength — SPRT vs the PeSTO build | Planned | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
 | Docs + glossary + board | Planned | [nnue-eval](specs/nnue-eval/design.md) | Measure strength |
