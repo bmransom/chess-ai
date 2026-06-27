@@ -1,11 +1,3 @@
-Chess AI is **brandobot**, a chess engine. A native Rust core (`core/`, the
-`brandobot_core` PyO3 module) owns all chess logic — bitboard move generation,
-evaluation, iterative-deepening negamax with alpha-beta, quiescence, MVV-LVA
-ordering, a transposition table, and time management. Two thin Python wrappers
-are the production entrypoints: a
-UCI engine over stdin/stdout (`src/main.py`, bridged to lichess via lichess-bot)
-and a Flask HTTP API (`src/api.py`).
-
 ## Commands
 
 ```bash
@@ -31,29 +23,23 @@ bypass once with `git push --no-verify`.
 **Never**
 - Introduce vocabulary from outside the chess and game-tree-search domain. This
   is a neutral engine; `knowledge/glossary.md` is the contract.
-- Edit a foundry verbatim file (marked `foundry-template:`) by hand — update via
-  `/foundry:update`.
-- `git add -A`. Stage explicit paths only — an untracked junk file named `\`
-  (an old `searcher.py` copy) sits in the tree.
 
 **Always**
 - Use the `knowledge/glossary.md` vocabulary in records, APIs, and concepts — it
-  is the contract.
+  is the domain language.
 - Before coining a canonical name (glossary term, public type or field, config
   knob), search the prior art and record provenance in the glossary.
 - Stage explicit paths, never `git add -A`.
 
 **Ask first**
-- Commit or push. Branch first if on the default branch.
+- Push to remote. Branch first if on the default branch.
 
 ## Writing style
 
-The standard is Strunk & White: omit needless words; use the active voice; make
+Omit needless words; use the active voice; make
 definite assertions. Lead with the point; one idea per sentence; concrete
 commands, paths, and names; say it once and link to depth. Prefer a table, list,
-or code block when denser than a sentence. Context-resident prose (AGENTS.md,
-rules, skills) loads into every session — every needless word costs tokens each
-time it loads; cut hardest there.
+or code block when denser than a sentence.
 
 ## Testing
 
@@ -86,3 +72,4 @@ recorded gate PASS. Specs live in `roadmap/specs/<feature>/`; ideas in
 ## Deeper docs
 
 `knowledge/README.md` indexes everything · glossary · validation · specs.
+
