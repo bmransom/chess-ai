@@ -53,11 +53,13 @@ refresh; the incremental accumulator is Wave 3.
   positions; the position count and teacher budget are recorded.*
   **In progress (2026-06-27):** `scripts/label.py` provides the labeling
   primitives — `teacher_eval` (white-positive, mate-capped centipawns via the
-  provisioned teacher) and `is_quiet` (no check, no pending capture) — verified
-  against `bin/stockfish` (startpos `+47`; `e2e4 d7d5` flagged non-quiet for the
-  pending `exd5`). Remaining: self-play position emission and the bulletformat
-  writer — the writer pairs with Wave 3's `bullet` setup so the binary format is
-  validated against the trainer rather than written blind.
+  provisioned teacher) and `is_quiet` — and `scripts/gen_data.py` plays brandobot
+  self-play from a book, keeps the quiet positions, labels each with the teacher,
+  and writes `<fen> | <cp> | <wdl>` records (verified: a 2-game run wrote 50
+  well-formed positions to the git-ignored `data/`). Remaining: the bulletformat
+  binary writer, which pairs with the `bullet` trainer so the format is validated
+  against it rather than written blind — `bullet` is git-only (not on crates.io),
+  a clone-and-build step for the training host.
 - **2.3 Train and export.** Run bullet on `(768 → 256)×2 → 1`; export the
   quantized net at the agreed `QA`/`QB`/`SCALE`. *Gate: AC-2.4 — a net file loads
   via Wave 1's loader; the training loss curve and position count are recorded.*

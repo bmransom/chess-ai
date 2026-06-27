@@ -34,3 +34,6 @@ knowledge/.vitepress/sidebar.generated.json
 
 # measure_terms.sh scratch worktrees
 .measure/
+
+# generated NNUE training data (large, reproducible via scripts/gen_data.py)
+data/
