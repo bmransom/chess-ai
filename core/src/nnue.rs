@@ -11,8 +11,10 @@
 //! perspective net, the squared clipped-ReLU, and these constants follow the
 //! `bullet` trainer's conventions; see `knowledge/glossary.md`.
 //!
-//! This module computes the accumulators by full refresh. Incremental update on
-//! make/unmake is a later wave.
+//! The accumulator supports incremental update — `add_piece` / `remove_piece`
+//! adjust both perspectives by a single weight column, so make/unmake need no full
+//! recompute. Wiring those deltas into the search's make/unmake is the next step;
+//! `evaluate` currently builds a fresh accumulator each call.
 
 use crate::board::Board;
 use crate::types::{pop_lsb, Color, PieceType, Square, NUM_PIECE_TYPES};
@@ -54,6 +56,16 @@ pub struct Network {
     output_weights: Vec<i16>,
     /// Output bias, at the `QA * QB` scale.
     output_bias: i32,
+}
+
+/// The two perspective accumulators — White's and Black's — each the
+/// feature-transformer bias plus the column of every active feature from that
+/// perspective's orientation. A piece add or remove updates both by a single
+/// weight column, so make/unmake need no full recompute.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct Accumulator {
+    white: [i32; HIDDEN],
+    black: [i32; HIDDEN],
 }
 
 /// The 768 feature index for a piece, from `perspective`'s orientation. The
@@ -160,38 +172,78 @@ impl Network {
         bytes
     }
 
-    /// One perspective's accumulator: the feature-transformer bias plus the
-    /// weight column of every piece, seen from `perspective`'s orientation.
-    fn accumulator(&self, board: &Board, perspective: Color) -> [i32; HIDDEN] {
-        let mut accumulator = [0i32; HIDDEN];
-        for (unit, bias) in accumulator.iter_mut().zip(&self.feature_bias) {
-            *unit = *bias as i32;
+    /// A fresh accumulator built from every piece — the full refresh. The
+    /// incremental path (`add_piece` / `remove_piece`) must agree with this for
+    /// any reachable position; the equivalence is the fast path's correctness gate.
+    fn fresh_accumulator(&self, board: &Board) -> Accumulator {
+        let mut bias = [0i32; HIDDEN];
+        for (unit, value) in bias.iter_mut().zip(&self.feature_bias) {
+            *unit = *value as i32;
         }
+        let mut accumulator = Accumulator {
+            white: bias,
+            black: bias,
+        };
         for &color in &[Color::White, Color::Black] {
             for &piece_type in &PieceType::ALL {
                 let mut pieces = board.pieces(color, piece_type);
                 while pieces != 0 {
                     let square = pop_lsb(&mut pieces);
-                    let feature = feature_index(perspective, color, piece_type, square);
-                    let base = feature * HIDDEN;
-                    let column = &self.feature_weights[base..base + HIDDEN];
-                    for (unit, weight) in accumulator.iter_mut().zip(column) {
-                        *unit += *weight as i32;
-                    }
+                    self.add_piece(&mut accumulator, color, piece_type, square);
                 }
             }
         }
         accumulator
     }
 
-    /// The white-positive static evaluation in centipawns. The network output is
-    /// side-to-move relative; this negates it for Black so it matches the sign
-    /// convention of the hand-written evaluation, a drop-in at the search seam.
-    pub fn evaluate(&self, board: &Board) -> i32 {
-        let side = board.side_to_move();
-        let stm = self.accumulator(board, side);
-        let nstm = self.accumulator(board, side.opponent());
+    /// Add a piece's feature column to both perspectives.
+    fn add_piece(&self, acc: &mut Accumulator, color: Color, piece: PieceType, square: Square) {
+        self.update_piece(acc, color, piece, square, 1);
+    }
 
+    /// Remove a piece's feature column from both perspectives — the exact inverse
+    /// of `add_piece`, so unmake restores the accumulator bit-for-bit. The search's
+    /// make/unmake wiring (the next Wave 3 step) is its production consumer; until
+    /// then only the equivalence tests exercise it.
+    #[allow(dead_code)]
+    fn remove_piece(&self, acc: &mut Accumulator, color: Color, piece: PieceType, square: Square) {
+        self.update_piece(acc, color, piece, square, -1);
+    }
+
+    fn update_piece(
+        &self,
+        acc: &mut Accumulator,
+        color: Color,
+        piece: PieceType,
+        square: Square,
+        sign: i32,
+    ) {
+        let white = feature_index(Color::White, color, piece, square) * HIDDEN;
+        for (unit, weight) in acc
+            .white
+            .iter_mut()
+            .zip(&self.feature_weights[white..white + HIDDEN])
+        {
+            *unit += sign * *weight as i32;
+        }
+        let black = feature_index(Color::Black, color, piece, square) * HIDDEN;
+        for (unit, weight) in acc
+            .black
+            .iter_mut()
+            .zip(&self.feature_weights[black..black + HIDDEN])
+        {
+            *unit += sign * *weight as i32;
+        }
+    }
+
+    /// The white-positive evaluation from a built accumulator. The network output
+    /// is side-to-move relative; this negates it for Black so it matches the
+    /// hand-written evaluation's sign, a drop-in at the search seam.
+    fn evaluate_accumulator(&self, acc: &Accumulator, side: Color) -> i32 {
+        let (stm, nstm) = match side {
+            Color::White => (&acc.white, &acc.black),
+            Color::Black => (&acc.black, &acc.white),
+        };
         let (stm_weights, nstm_weights) = self.output_weights.split_at(HIDDEN);
         let mut sum: i64 = 0;
         for (unit, weight) in stm.iter().zip(stm_weights) {
@@ -214,11 +266,18 @@ impl Network {
             -relative
         }
     }
+
+    /// The white-positive static evaluation in centipawns, by full refresh.
+    pub fn evaluate(&self, board: &Board) -> i32 {
+        let accumulator = self.fresh_accumulator(board);
+        self.evaluate_accumulator(&accumulator, board.side_to_move())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::make_square;
 
     /// A deterministic, non-trivial network — varied small weights so the
     /// symmetry and round-trip tests are meaningful (all-zero would pass them
@@ -251,6 +310,54 @@ mod tests {
         let mirror = Board::from_fen("4k3/8/8/3n4/8/8/8/4K3 b - - 0 1").unwrap();
 
         assert_eq!(net.evaluate(&mirror), -net.evaluate(&position));
+    }
+
+    #[test]
+    fn incremental_add_remove_matches_a_full_refresh() {
+        // Move a white knight d4 -> f5 by remove + add; the incrementally updated
+        // accumulator must equal a fresh accumulator of the knight-on-f5 position.
+        let net = deterministic();
+        let before = Board::from_fen("4k3/8/8/8/3N4/8/8/4K3 w - - 0 1").unwrap();
+        let after = Board::from_fen("4k3/8/8/5N2/8/8/8/4K3 w - - 0 1").unwrap();
+
+        let mut accumulator = net.fresh_accumulator(&before);
+        net.remove_piece(
+            &mut accumulator,
+            Color::White,
+            PieceType::Knight,
+            make_square(3, 3),
+        );
+        net.add_piece(
+            &mut accumulator,
+            Color::White,
+            PieceType::Knight,
+            make_square(5, 4),
+        );
+
+        assert_eq!(accumulator, net.fresh_accumulator(&after));
+    }
+
+    #[test]
+    fn add_then_remove_restores_the_accumulator() {
+        // Unmake must restore the accumulator exactly: remove inverts add.
+        let net = deterministic();
+        let original = net.fresh_accumulator(&Board::startpos());
+
+        let mut accumulator = original.clone();
+        net.add_piece(
+            &mut accumulator,
+            Color::Black,
+            PieceType::Rook,
+            make_square(3, 3),
+        );
+        net.remove_piece(
+            &mut accumulator,
+            Color::Black,
+            PieceType::Rook,
+            make_square(3, 3),
+        );
+
+        assert_eq!(accumulator, original);
     }
 
     #[test]

@@ -67,6 +67,15 @@ refresh; the incremental accumulator is Wave 3.
 - **3.1 Incremental update.** Have `make_move`/`unmake_move` carry the dirty-piece
   list in `Undo`; apply add/subtract feature deltas in `nnue.rs`. *Gate: AC-3.1–3.2
   — a unit test shows make then unmake restores the accumulator exactly.*
+  **In progress (2026-06-27):** the incremental primitives landed in `nnue.rs` —
+  an `Accumulator` (White/Black perspectives) with `add_piece`/`remove_piece` that
+  adjust both perspectives by one weight column, and `evaluate` refactored onto
+  them (results unchanged; the Wave 1 tests still pass). Two unit tests prove the
+  deltas: a d4→f5 knight move incrementally equals a full refresh of the
+  destination, and add-then-remove restores the accumulator exactly. Remaining:
+  thread the per-move deltas through `make_move`/`unmake_move` (`Undo` dirty-piece
+  list) and a search accumulator stack — perf-sensitive hot-path work, so it lands
+  as its own step.
 - **3.2 Equivalence + node rate.** Add the refresh == incremental test over a
   self-play game; measure nps against full refresh. *Gate: AC-3.3 — the
   incremental and refreshed accumulators are identical for every position; the
