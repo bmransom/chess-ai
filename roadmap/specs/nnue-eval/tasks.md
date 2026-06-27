@@ -1,0 +1,78 @@
+---
+title: NNUE evaluation — tasks
+description: Waved plan for a borrowed 768 perspective NNUE — pipeline proof, training, incremental accumulator, SPRT measurement, docs. Each task names its gate.
+---
+
+> **Status:** Planned (2026-06-26) — tracked on the [board](../../ROADMAP.md).
+
+# NNUE evaluation — tasks
+
+Tasks within a wave are independent; each wave builds on the last. Every task
+names its gate. Wave 1 proves the inference pipeline with an untrained net; the
+trained net and its strength verdict come later. The net ships only on an SPRT
+pass against the PeSTO build.
+
+## Wave 1 — Borrow the architecture
+
+- **1.1 Network format + loader.** Define the quantized little-endian file
+  (header + feature transformer + output weights) and `nnue.rs` load with header
+  and dimension checks. *Gate: AC-1.4 — a matching file loads, a mismatched header
+  or dimension is rejected.*
+- **1.2 Full-refresh forward pass.** Implement the 768 feature extractor over the
+  piece bitboards, the perspective accumulator pair, SCReLU, the output neuron,
+  and White-positive dequantization by `SCALE / (QA·QB)`. *Gate: AC-1.1–1.3, 1.5 —
+  the start position evaluates to a finite centipawn score and a color-mirrored,
+  side-swapped position negates, on a randomly-initialized net.*
+- **1.3 Flagged drop-in.** Add the eval-selection flag and `Searcher.load_nnue`;
+  route `search.rs:275` through the selected eval. *Gate: AC-4.1–4.2 — with the
+  flag off the engine is unchanged (PeSTO golden values hold) and perft is
+  unaffected; the full gate passes.*
+
+**Wave 1 gate.** `scripts/check-fast.sh` PASS (2026-06-27) on branch
+`feat/nnue-eval`: rust core fmt + clippy (`-D warnings`) + 54 tests, maturin
+build, ruff clean, 47 pytest, knowledge OK. Flag-off leaves the engine unchanged
+(the 47 acceptance tests pass with the rebuilt extension); the six new NNUE unit
+tests cover loader rejection (bad magic, wrong dimension, truncation), the
+`to_bytes`/`from_bytes` round-trip, the bounded start-position score, and the
+perspective antisymmetry of the white-positive score. The forward pass is full
+refresh; the incremental accumulator is Wave 3.
+
+## Wave 2 — Training pipeline (teacher distillation)
+
+- **2.1 Provision the teacher.** Add a fetch step for the Stockfish binary
+  (analogous to `fetch_uho.py`); record its identity and version. *Gate: AC-2.3 —
+  the teacher provisions reproducibly and answers over UCI.*
+- **2.2 Generate + label.** Extend `selfplay.py` to emit positions (FEN, game
+  result) from varied book openings; filter to quiet positions; label each with
+  the teacher's eval at a fixed depth/node budget; write bulletformat. *Gate:
+  AC-2.1–2.2 — a small run produces a well-formed teacher-labeled dataset of quiet
+  positions; the position count and teacher budget are recorded.*
+- **2.3 Train and export.** Run bullet on `(768 → 256)×2 → 1`; export the
+  quantized net at the agreed `QA`/`QB`/`SCALE`. *Gate: AC-2.4 — a net file loads
+  via Wave 1's loader; the training loss curve and position count are recorded.*
+
+## Wave 3 — Incremental accumulator
+
+- **3.1 Incremental update.** Have `make_move`/`unmake_move` carry the dirty-piece
+  list in `Undo`; apply add/subtract feature deltas in `nnue.rs`. *Gate: AC-3.1–3.2
+  — a unit test shows make then unmake restores the accumulator exactly.*
+- **3.2 Equivalence + node rate.** Add the refresh == incremental test over a
+  self-play game; measure nps against full refresh. *Gate: AC-3.3 — the
+  incremental and refreshed accumulators are identical for every position; the
+  nps delta is recorded.*
+
+## Wave 4 — Measure strength
+
+- **4.1 SPRT vs PeSTO.** Run a fair-match SPRT (`sprt.py`) of the NNUE build (flag
+  on) against the PeSTO build (flag off). *Gate: AC-5.1 — the SPRT verdict is
+  recorded; the net is retained only on a pass.*
+
+## Wave 5 — Docs & board
+
+- **5.1 Scenario.** Add or update a feature Scenario exercising the NNUE eval
+  through the UCI entrypoint (load a net, get a legal move). *Gate: the acceptance
+  runner passes.*
+- **5.2 Docs, glossary, board.** Confirm the NNUE terms in `knowledge/glossary.md`
+  with provenance, note the eval and the net file in `AGENTS.md`, and move the
+  Epic 5 cards to Done. *Gate: `python3 scripts/knowledge.py check` clean; recorded
+  gate PASS.*

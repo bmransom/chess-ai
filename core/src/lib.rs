@@ -11,6 +11,7 @@ mod chess_move;
 mod eval;
 mod movegen;
 mod movesort;
+mod nnue;
 mod search;
 mod tt;
 mod types;
@@ -60,6 +61,10 @@ struct Searcher {
     board: Board,
     transposition_table: TranspositionTable,
     last_decision_tree: Option<DecisionTree>,
+    /// The NNUE network, when one has been loaded; otherwise leaf positions use
+    /// the hand-written evaluation. Engine configuration, not game state — it
+    /// survives `new_game`.
+    eval_net: Option<nnue::Network>,
 }
 
 #[pymethods]
@@ -70,15 +75,27 @@ impl Searcher {
             board: Board::startpos(),
             transposition_table: TranspositionTable::new(),
             last_decision_tree: None,
+            eval_net: None,
         }
     }
 
     /// Reset to the starting position, clear the transposition table, and drop
-    /// any captured decision tree.
+    /// any captured decision tree. The loaded NNUE network, if any, is kept.
     fn new_game(&mut self) {
         self.board = Board::startpos();
         self.transposition_table = TranspositionTable::new();
         self.last_decision_tree = None;
+    }
+
+    /// Load an NNUE network from a file; leaf positions then evaluate through it
+    /// instead of the hand-written evaluation. Rejects a file that does not match
+    /// the compiled architecture.
+    fn load_nnue(&mut self, path: &str) -> PyResult<()> {
+        let bytes = std::fs::read(path)
+            .map_err(|err| PyValueError::new_err(format!("cannot read '{path}': {err}")))?;
+        let network = nnue::Network::from_bytes(&bytes).map_err(PyValueError::new_err)?;
+        self.eval_net = Some(network);
+        Ok(())
     }
 
     /// Set the position: `fen` (or the start position when omitted), then apply
@@ -145,13 +162,15 @@ impl Searcher {
         if capture_tree {
             let plies = tree_depth.clamp(1, depth.max(1));
             let nodes = {
-                let mut scout = search::Searcher::new(&mut self.transposition_table);
+                let mut scout = search::Searcher::new(&mut self.transposition_table)
+                    .with_eval_net(self.eval_net.as_ref());
                 scout.capture_tree(&mut self.board, depth as i32, plies, 0)
             };
             let captured = nodes.into_iter().map(CapturedNode::from_tree).collect();
             self.last_decision_tree = Some((self.board.to_fen(), captured));
         }
-        let mut searcher = search::Searcher::new(&mut self.transposition_table);
+        let mut searcher = search::Searcher::new(&mut self.transposition_table)
+            .with_eval_net(self.eval_net.as_ref());
         match searcher.best_move(&mut self.board, depth as i32) {
             Some(mv) => mv.to_uci(),
             None => NULL_MOVE.to_string(),
@@ -188,7 +207,8 @@ impl Searcher {
             node_limit,
         };
         let result = {
-            let mut searcher = search::Searcher::new(&mut self.transposition_table);
+            let mut searcher = search::Searcher::new(&mut self.transposition_table)
+                .with_eval_net(self.eval_net.as_ref());
             searcher.search(&mut self.board, &limits, std::time::Instant::now())
         };
 

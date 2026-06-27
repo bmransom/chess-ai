@@ -12,6 +12,7 @@ use crate::movesort::{
     get_moves_to_dequiet, history_index, in_check, prioritize_legal_moves, OrderingContext,
     HISTORY_SIZE,
 };
+use crate::nnue::Network;
 use crate::tt::{Flag, HashEntry, TranspositionTable};
 use crate::types::Color;
 
@@ -81,6 +82,9 @@ pub struct Searcher<'a> {
     stopped: bool,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
+    /// The NNUE network, when one is loaded; otherwise the hand-written
+    /// evaluation is used. Selected once per search via [`Searcher::with_eval_net`].
+    eval_net: Option<&'a Network>,
 }
 
 impl<'a> Searcher<'a> {
@@ -96,6 +100,24 @@ impl<'a> Searcher<'a> {
             node_limit: None,
             stopped: false,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
+            eval_net: None,
+        }
+    }
+
+    /// Evaluate leaf positions with `net` instead of the hand-written
+    /// evaluation. `None` keeps the hand-written evaluation. Chains onto `new`.
+    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a> {
+        self.eval_net = net;
+        self
+    }
+
+    /// The white-positive static evaluation: the NNUE network when one is
+    /// loaded, else the hand-written evaluation. Both share the sign convention,
+    /// so the search seam is identical for either.
+    fn evaluate(&self, board: &Board) -> i32 {
+        match self.eval_net {
+            Some(net) => net.evaluate(board),
+            None => eval::evaluate(board),
         }
     }
 
@@ -272,7 +294,7 @@ impl<'a> Searcher<'a> {
             } else {
                 -1
             };
-            let stand_pat = eval::evaluate(board) * perspective;
+            let stand_pat = self.evaluate(board) * perspective;
             if !is_in_check {
                 if stand_pat >= beta {
                     return (None, beta);
