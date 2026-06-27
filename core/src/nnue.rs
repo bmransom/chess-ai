@@ -64,7 +64,7 @@ pub struct Network {
 /// perspective's orientation. A piece add or remove updates both by a single
 /// weight column, so make/unmake need no full recompute.
 #[derive(Clone, PartialEq, Eq, Debug)]
-struct Accumulator {
+pub(crate) struct Accumulator {
     white: [i32; HIDDEN],
     black: [i32; HIDDEN],
 }
@@ -176,7 +176,7 @@ impl Network {
     /// A fresh accumulator built from every piece — the full refresh. The
     /// incremental path (`add_piece` / `remove_piece`) must agree with this for
     /// any reachable position; the equivalence is the fast path's correctness gate.
-    fn fresh_accumulator(&self, board: &Board) -> Accumulator {
+    pub(crate) fn fresh_accumulator(&self, board: &Board) -> Accumulator {
         let mut bias = [0i32; HIDDEN];
         for (unit, value) in bias.iter_mut().zip(&self.feature_bias) {
             *unit = *value as i32;
@@ -203,10 +203,7 @@ impl Network {
     }
 
     /// Remove a piece's feature column from both perspectives — the exact inverse
-    /// of `add_piece`, so unmake restores the accumulator bit-for-bit. The search's
-    /// make/unmake wiring (the next Wave 3 step) is its production consumer; until
-    /// then only the equivalence tests exercise it.
-    #[allow(dead_code)]
+    /// of `add_piece`, so unmake restores the accumulator bit-for-bit.
     fn remove_piece(&self, acc: &mut Accumulator, color: Color, piece: PieceType, square: Square) {
         self.update_piece(acc, color, piece, square, -1);
     }
@@ -240,10 +237,9 @@ impl Network {
     /// Update both accumulators for `mv`, mirroring `Board::make_move`'s piece
     /// changes — capture, en passant, promotion, and castling each shift the same
     /// pieces the board does, so the result equals a full refresh of the position
-    /// after the move. `board` is the position *before* `mv`. The search's
-    /// make/unmake (the next Wave 3 step) is its production consumer.
-    #[allow(dead_code)]
-    fn apply_move(&self, acc: &mut Accumulator, board: &Board, mv: Move) {
+    /// after the move. `board` is the position *before* `mv`. The search calls
+    /// this around its make/unmake to maintain the accumulator incrementally.
+    pub(crate) fn apply_move(&self, acc: &mut Accumulator, board: &Board, mv: Move) {
         let us = board.side_to_move();
         let them = us.opponent();
         let from = mv.from();
@@ -283,7 +279,7 @@ impl Network {
     /// The white-positive evaluation from a built accumulator. The network output
     /// is side-to-move relative; this negates it for Black so it matches the
     /// hand-written evaluation's sign, a drop-in at the search seam.
-    fn evaluate_accumulator(&self, acc: &Accumulator, side: Color) -> i32 {
+    pub(crate) fn evaluate_accumulator(&self, acc: &Accumulator, side: Color) -> i32 {
         let (stm, nstm) = match side {
             Color::White => (&acc.white, &acc.black),
             Color::Black => (&acc.black, &acc.white),
@@ -318,25 +314,29 @@ impl Network {
     }
 }
 
+/// A deterministic, non-trivial network for tests — varied small weights so the
+/// equivalence and symmetry checks are meaningful (all-zero would pass them
+/// vacuously). Crate-visible so the search tests can load a net too.
+#[cfg(test)]
+pub(crate) fn test_network() -> Network {
+    let pattern =
+        |index: usize| ((index as u64).wrapping_mul(2_654_435_761) >> 8).rem_euclid(17) as i16 - 8;
+    Network {
+        feature_weights: (0..FEATURE_WEIGHTS).map(pattern).collect(),
+        feature_bias: (0..HIDDEN).map(|i| pattern(i + 7)).collect(),
+        output_weights: (0..OUTPUT_WEIGHTS).map(|i| pattern(i + 3)).collect(),
+        output_bias: 25,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::movegen::generate_legal;
     use crate::types::make_square;
 
-    /// A deterministic, non-trivial network — varied small weights so the
-    /// symmetry and round-trip tests are meaningful (all-zero would pass them
-    /// vacuously). No file needed.
     fn deterministic() -> Network {
-        let pattern = |index: usize| {
-            ((index as u64).wrapping_mul(2_654_435_761) >> 8).rem_euclid(17) as i16 - 8
-        };
-        Network {
-            feature_weights: (0..FEATURE_WEIGHTS).map(pattern).collect(),
-            feature_bias: (0..HIDDEN).map(|i| pattern(i + 7)).collect(),
-            output_weights: (0..OUTPUT_WEIGHTS).map(|i| pattern(i + 3)).collect(),
-            output_bias: 25,
-        }
+        test_network()
     }
 
     #[test]
@@ -457,6 +457,28 @@ mod tests {
         );
         assert_incremental(&net, "4k3/P7/8/8/8/8/8/4K3 w - - 0 1", "a7a8q");
         assert_incremental(&net, "1r2k3/P7/8/8/8/8/8/4K3 w - - 0 1", "a7b8q");
+    }
+
+    #[test]
+    fn apply_move_stays_consistent_through_a_game() {
+        // A Ruy Lopez line — quiet moves, two captures, and both sides castling —
+        // applied incrementally must match a full refresh at every ply.
+        let net = deterministic();
+        let mut board = Board::startpos();
+        let mut accumulator = net.fresh_accumulator(&board);
+        for uci in [
+            "e2e4", "e7e5", "g1f3", "b8c6", "f1b5", "a7a6", "b5c6", "d7c6", "e1g1", "f8d6", "d2d4",
+            "e5d4", "f3d4", "g8f6", "b1c3", "e8g8",
+        ] {
+            let mv = generate_legal(&mut board)
+                .iter()
+                .copied()
+                .find(|candidate| candidate.to_uci() == uci)
+                .unwrap_or_else(|| panic!("{uci} is not legal"));
+            net.apply_move(&mut accumulator, &board, mv);
+            board.make_move(mv);
+            assert_eq!(accumulator, net.fresh_accumulator(&board), "after {uci}");
+        }
     }
 
     #[test]

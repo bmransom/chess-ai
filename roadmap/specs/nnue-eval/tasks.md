@@ -75,12 +75,22 @@ refresh; the incremental accumulator is Wave 3.
   destination, and add-then-remove restores the accumulator exactly. `apply_move`
   now derives a move's deltas (capture, en passant, promotion, both castles) from
   the pre-move board, verified to equal a full refresh for every move type — so
-  `board.rs` and perft stay untouched. Remaining: maintain the accumulator across
-  the search's make/unmake (a per-ply stack) and record the nps gain.
+  `board.rs` and perft stay untouched.
+  **Done (2026-06-27):** the search maintains the accumulator — initialized at the
+  root, advanced (clone + `apply_move`) before each `make_move` and restored after
+  `unmake_move`; `evaluate` reads the maintained accumulator instead of a refresh.
+  A `debug_assert` in `evaluate` compares it to a full refresh on every node, so
+  any desync fails loudly under debug builds (compiled out of the release engine).
 - **3.2 Equivalence + node rate.** Add the refresh == incremental test over a
   self-play game; measure nps against full refresh. *Gate: AC-3.3 — the
   incremental and refreshed accumulators are identical for every position; the
   nps delta is recorded.*
+  **Done (2026-06-27):** AC-3.3 is proven two ways — `apply_move` equals a full
+  refresh at every ply of a 16-move Ruy Lopez line (captures + both castles), and
+  the `evaluate` `debug_assert` held at every node of depth-4 net-on searches of
+  three positions. The nps measurement against full refresh waits on a trained net
+  (Wave 2/4) — there is no `.nnue` file to benchmark yet; Wave 4's SPRT measures
+  the effective speed in the match.
 
 ## Wave 4 — Measure strength
 
