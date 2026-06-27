@@ -17,6 +17,7 @@
 //! `evaluate` currently builds a fresh accumulator each call.
 
 use crate::board::Board;
+use crate::chess_move::Move;
 use crate::types::{pop_lsb, Color, PieceType, Square, NUM_PIECE_TYPES};
 
 /// Input features: piece type x color x square.
@@ -236,6 +237,49 @@ impl Network {
         }
     }
 
+    /// Update both accumulators for `mv`, mirroring `Board::make_move`'s piece
+    /// changes — capture, en passant, promotion, and castling each shift the same
+    /// pieces the board does, so the result equals a full refresh of the position
+    /// after the move. `board` is the position *before* `mv`. The search's
+    /// make/unmake (the next Wave 3 step) is its production consumer.
+    #[allow(dead_code)]
+    fn apply_move(&self, acc: &mut Accumulator, board: &Board, mv: Move) {
+        let us = board.side_to_move();
+        let them = us.opponent();
+        let from = mv.from();
+        let to = mv.to();
+        let moving = board.piece_at(from).expect("from holds a piece").piece_type;
+
+        if mv.is_en_passant() {
+            let captured = if us == Color::White { to - 8 } else { to + 8 };
+            self.remove_piece(acc, them, PieceType::Pawn, captured);
+        } else if mv.is_capture() {
+            let victim = board.piece_at(to).expect("capture has a target");
+            self.remove_piece(acc, victim.color, victim.piece_type, to);
+        }
+
+        match mv.promotion() {
+            Some(promotion) => {
+                self.remove_piece(acc, us, PieceType::Pawn, from);
+                self.add_piece(acc, us, promotion, to);
+            }
+            None => {
+                self.remove_piece(acc, us, moving, from);
+                self.add_piece(acc, us, moving, to);
+            }
+        }
+
+        if mv.is_king_castle() {
+            let (rook_from, rook_to) = if us == Color::White { (7, 5) } else { (63, 61) };
+            self.remove_piece(acc, us, PieceType::Rook, rook_from);
+            self.add_piece(acc, us, PieceType::Rook, rook_to);
+        } else if mv.is_queen_castle() {
+            let (rook_from, rook_to) = if us == Color::White { (0, 3) } else { (56, 59) };
+            self.remove_piece(acc, us, PieceType::Rook, rook_from);
+            self.add_piece(acc, us, PieceType::Rook, rook_to);
+        }
+    }
+
     /// The white-positive evaluation from a built accumulator. The network output
     /// is side-to-move relative; this negates it for Black so it matches the
     /// hand-written evaluation's sign, a drop-in at the search seam.
@@ -277,6 +321,7 @@ impl Network {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movegen::generate_legal;
     use crate::types::make_square;
 
     /// A deterministic, non-trivial network — varied small weights so the
@@ -358,6 +403,60 @@ mod tests {
         );
 
         assert_eq!(accumulator, original);
+    }
+
+    /// Apply `uci` to a fresh accumulator via the incremental `apply_move`, then
+    /// assert it equals a full refresh of the resulting position.
+    fn assert_incremental(net: &Network, fen: &str, uci: &str) {
+        let mut board = Board::from_fen(fen).unwrap();
+        let mv = generate_legal(&mut board)
+            .iter()
+            .copied()
+            .find(|candidate| candidate.to_uci() == uci)
+            .unwrap_or_else(|| panic!("{uci} is not legal in {fen}"));
+
+        let mut accumulator = net.fresh_accumulator(&board);
+        net.apply_move(&mut accumulator, &board, mv);
+        board.make_move(mv);
+
+        assert_eq!(
+            accumulator,
+            net.fresh_accumulator(&board),
+            "after {uci} from {fen}"
+        );
+    }
+
+    #[test]
+    fn apply_move_matches_a_full_refresh_for_every_move_type() {
+        let net = deterministic();
+        // quiet, capture, en passant, both castles, promotion, promotion-capture.
+        assert_incremental(
+            &net,
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+            "e2e4",
+        );
+        assert_incremental(
+            &net,
+            "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2",
+            "e4d5",
+        );
+        assert_incremental(
+            &net,
+            "rnbqkbnr/ppp1pppp/8/3pP3/8/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 3",
+            "e5d6",
+        );
+        assert_incremental(
+            &net,
+            "rnbqk2r/pppp1ppp/5n2/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+            "e1g1",
+        );
+        assert_incremental(
+            &net,
+            "r3k2r/pppqbppp/2npbn2/4p3/4P3/2NPBN2/PPPQBPPP/R3K2R w KQkq - 0 1",
+            "e1c1",
+        );
+        assert_incremental(&net, "4k3/P7/8/8/8/8/8/4K3 w - - 0 1", "a7a8q");
+        assert_incremental(&net, "1r2k3/P7/8/8/8/8/8/4K3 w - - 0 1", "a7b8q");
     }
 
     #[test]

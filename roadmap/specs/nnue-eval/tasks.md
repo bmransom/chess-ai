@@ -72,10 +72,11 @@ refresh; the incremental accumulator is Wave 3.
   adjust both perspectives by one weight column, and `evaluate` refactored onto
   them (results unchanged; the Wave 1 tests still pass). Two unit tests prove the
   deltas: a d4→f5 knight move incrementally equals a full refresh of the
-  destination, and add-then-remove restores the accumulator exactly. Remaining:
-  thread the per-move deltas through `make_move`/`unmake_move` (`Undo` dirty-piece
-  list) and a search accumulator stack — perf-sensitive hot-path work, so it lands
-  as its own step.
+  destination, and add-then-remove restores the accumulator exactly. `apply_move`
+  now derives a move's deltas (capture, en passant, promotion, both castles) from
+  the pre-move board, verified to equal a full refresh for every move type — so
+  `board.rs` and perft stay untouched. Remaining: maintain the accumulator across
+  the search's make/unmake (a per-ply stack) and record the nps gain.
 - **3.2 Equivalence + node rate.** Add the refresh == incremental test over a
   self-play game; measure nps against full refresh. *Gate: AC-3.3 — the
   incremental and refreshed accumulators are identical for every position; the

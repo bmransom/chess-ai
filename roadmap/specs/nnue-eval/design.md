@@ -78,7 +78,7 @@ and `evaluate`. The touch points in the existing core:
 |---|---|---|
 | Eval call | `search.rs:275` | `eval::evaluate(board)` → `self.eval_fn(board)`; NNUE returns White-positive, so `* perspective` is unchanged. |
 | Feature read | `board.rs:216` `pieces()` | The extractor iterates the 12 piece bitboards with `pop_lsb()` to active feature indices. |
-| Incremental update | `board.rs:280–289` `move_piece`/`add_piece`/`remove_piece` | The three atomic ops are the accumulator deltas; they emit a dirty-piece list `make_move` carries in `Undo`, applied in `nnue.rs` — board logic stays free of network knowledge. |
+| Incremental update | `nnue.rs` `apply_move` + the search's make/unmake | `apply_move` derives the feature deltas from the move and the pre-move board (capture, en passant, promotion, castling), so `board.rs` stays unchanged and perft pays nothing; the search maintains the accumulator across make/unmake and pops it on undo. |
 | Weight load | `lib.rs:305` `#[pymodule]` | New `Searcher.load_nnue(path)` and an eval-selection flag; the core has no file I/O today, so this is genuinely new surface. |
 
 The PeSTO `eval::evaluate` stays. The flag selects the function pointer; with the
