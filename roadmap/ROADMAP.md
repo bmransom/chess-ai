@@ -3,7 +3,7 @@ title: Roadmap
 description: The tracked kanban board — the single source of truth for cross-spec status.
 ---
 
-<!-- foundry-seed: roadmap v1 -->
+<!-- foundry-seed: roadmap v2 -->
 
 # Roadmap
 
@@ -14,6 +14,9 @@ Run `scripts/board.sh` to render the board; `scripts/board.sh "Epic 0"` filters 
 - A **card** is one table row: `Work | Status | Spec | Depends on`. Claim a card by
   adding `(@<owner>)` to its Work cell; never take a card another agent owns.
   Respect the Depends-on column.
+- An **In progress** card names where its work lives: the branch, and the absolute
+  worktree path when the work sits in a separate or out-of-repo worktree. A harness that
+  resumes the card reads this to find existing work instead of guessing.
 - A card's **status** is its column: `Backlog → Ready → In progress → Validating →
   Done` (+ `Superseded`, terminal). `Blocked` and the owner are flags, not columns.
 - The dashboard groups cards by **epic**; the epic order is the priority order.

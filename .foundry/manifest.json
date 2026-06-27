@@ -1,5 +1,5 @@
 {
-  "pluginVersion": "0.1.2",
+  "pluginVersion": "0.1.7",
   "conventionVersion": 3,
   "harnesses": ["claude-code", "codex"],
   "files": {

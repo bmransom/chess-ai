@@ -27,11 +27,19 @@ A **perspective network** over the **768** feature set. A feature is a
 `(piece type, color, square)` triple — 6 × 2 × 64 = 768 binary inputs, of which
 exactly the occupied squares (≤ 32) are active.
 
-```
-  768 inputs ──┬─► [stm accumulator : 256]  ─┐
-  (per side)   └─► [nstm accumulator: 256]  ─┴─► concat(512) ─► output(1)
-                          │                              │
-                    SCReLU clamp [0, QA]            White-positive cp
+```mermaid
+flowchart LR
+  B[Board bitboards] --> FE[768 feature extractor]
+  FE --> AS[stm accumulator: 256]
+  FE --> AN[nstm accumulator: 256]
+  AS --> R1[SCReLU clamp 0..QA]
+  AN --> R2[SCReLU clamp 0..QA]
+  R1 --> C[concat: 512]
+  R2 --> C
+  C --> O[output neuron]
+  O --> D["dequantize: SCALE / (QA·QB)"]
+  D --> W[white-positive cp · mate-clamped]
+  W --> S["search seam (search.rs:275) · × perspective"]
 ```
 
 Two accumulators share one feature transformer (the 768×256 first layer). The
@@ -113,6 +121,19 @@ labels make a given position budget far more effective than weak self-play score
 the wave records the position count and the teacher budget. The dominant risk
 shifts from label quality to label *throughput* — Stockfish at depth over millions
 of positions is the slow step.
+
+## Metrics
+
+| Metric | What it tells us | How measured |
+|---|---|---|
+| Elo vs PeSTO | Whether the net is worth shipping — the decisive gate | Fair-match SPRT, `sprt.py` (flag-on vs flag-off) |
+| Training loss | Whether the net is learning the teacher's evaluation | bullet's per-epoch loss curve |
+| Node rate (nps) | Whether the eval stays fast enough to be worth it | self-play / `measure_nps`, NNUE vs PeSTO |
+| refresh == incremental | Correctness of the fast accumulator path | equivalence test over a self-play game (AC-3.3) |
+
+The Elo gate is decisive: the net ships only on an SPRT pass over PeSTO. The others
+are guardrails — a net that trains well but loses nps or fails the equivalence test
+is not shipped.
 
 ## Verification
 
