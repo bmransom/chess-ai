@@ -1,0 +1,3 @@
+-r requirements-dev.txt
+# NNUE training (Apple Silicon: torch ships the MPS/Metal backend)
+torch

@@ -46,23 +46,26 @@ refresh; the incremental accumulator is Wave 3.
   `sf_17.1` release (GPL-3.0; only its eval labels are used), installs it to
   `bin/stockfish` (git-ignored, like the UHO book), and verifies the handshake —
   `id name Stockfish 17.1`, `uciok`. ruff clean.
-- **2.2 Generate + label.** Extend `selfplay.py` to emit positions (FEN, game
-  result) from varied book openings; filter to quiet positions; label each with
-  the teacher's eval at a fixed depth/node budget; write bulletformat. *Gate:
-  AC-2.1–2.2 — a small run produces a well-formed teacher-labeled dataset of quiet
-  positions; the position count and teacher budget are recorded.*
-  **In progress (2026-06-27):** `scripts/label.py` provides the labeling
-  primitives — `teacher_eval` (white-positive, mate-capped centipawns via the
-  provisioned teacher) and `is_quiet` — and `scripts/gen_data.py` plays brandobot
-  self-play from a book, keeps the quiet positions, labels each with the teacher,
-  and writes `<fen> | <cp> | <wdl>` records (verified: a 2-game run wrote 50
-  well-formed positions to the git-ignored `data/`). Remaining: the bulletformat
-  binary writer, which pairs with the `bullet` trainer so the format is validated
-  against it rather than written blind — `bullet` is git-only (not on crates.io),
-  a clone-and-build step for the training host.
-- **2.3 Train and export.** Run bullet on `(768 → 256)×2 → 1`; export the
-  quantized net at the agreed `QA`/`QB`/`SCALE`. *Gate: AC-2.4 — a net file loads
-  via Wave 1's loader; the training loss curve and position count are recorded.*
+- **2.2 Generate + label.** Play self-play games from varied book openings; filter
+  to quiet positions; label each with the teacher's eval; write the records the
+  trainer reads. *Gate: AC-2.1–2.2 — a small run produces a well-formed
+  teacher-labeled dataset of quiet positions; the position count and teacher budget
+  are recorded.*
+  **Done (2026-06-27):** `scripts/label.py` provides the labeling primitives —
+  `teacher_eval` (white-positive, mate-capped centipawns) and `is_quiet` — and
+  `scripts/gen_data.py` plays brandobot self-play from a book, keeps the quiet
+  positions, labels each with the teacher, and writes `<fen> | <cp> | <wdl>`
+  records to the git-ignored `data/` (verified: an 8-game run wrote 171 positions).
+  The trainer reads these directly — no bulletformat.
+- **2.3 Train and export.** Train the `(768 → 256)×2 → 1` net on MPS; quantize and
+  export the BNN1 `.nnue`. *Gate: AC-2.4 — a net file loads via Wave 1's loader; the
+  training loss curve and position count are recorded.*
+  **Done (2026-06-27):** `scripts/train.py` trains on the Mac's GPU (PyTorch MPS),
+  quantizes to `QA`/`QB`/`SCALE`, and writes BNN1 directly. End-to-end verified on
+  171 positions: loss fell to 0.013, the net loads via `load_nnue`, the engine
+  searches with it (`e2e4`), and `nnue_evaluate` confirms the engine's integer eval
+  matches the float model within 1.8 cp (quantization error). A *strong* net still
+  needs a large dataset — this proves the pipeline, not net quality.
 
 ## Wave 3 — Incremental accumulator
 

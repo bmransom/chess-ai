@@ -128,7 +128,7 @@ engine's speed, so per-term retention stays unverified.
 
 Add a learned static evaluation inside the existing alpha-beta search: borrow the
 simplest viable modern architecture — a 768 perspective network
-(`(768 → 256)×2 → 1`), trained with the bullet trainer on self-play positions
+(`(768 → 256)×2 → 1`), trained with a PyTorch (MPS) trainer on self-play positions
 labeled by a teacher engine (Stockfish eval — knowledge distillation),
 integer-quantized, and updated incrementally on make/unmake. The net stays ours;
 only the training label is borrowed, which rating lists accept. The new path sits
@@ -140,7 +140,7 @@ integration, is the dominant cost.
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
 | Borrow the architecture — net format, loader, full-refresh inference, flagged drop-in (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Evaluation, Iterative deepening |
-| Training pipeline — teacher-labeled self-play data, bulletformat, bullet train + export (@bmransom, `feat/nnue-eval`) | In progress | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
+| Training pipeline — teacher-labeled self-play data, PyTorch/MPS train + export to .nnue (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
 | Incremental accumulator — make/unmake deltas, refresh == incremental, node rate (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
 | Measure strength — SPRT vs the PeSTO build | Planned | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
 | Docs + glossary + board | Planned | [nnue-eval](specs/nnue-eval/design.md) | Measure strength |

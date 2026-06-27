@@ -315,6 +315,17 @@ fn evaluate(fen: &str) -> PyResult<i64> {
     Ok(eval::evaluate(&board) as i64)
 }
 
+/// The white-positive NNUE evaluation of `fen` under the network at `net_path`.
+/// Lets the trainer verify its exported `.nnue` against the engine's own math.
+#[pyfunction]
+fn nnue_evaluate(fen: &str, net_path: &str) -> PyResult<i64> {
+    let board = Board::from_fen(fen).map_err(PyValueError::new_err)?;
+    let bytes = std::fs::read(net_path)
+        .map_err(|err| PyValueError::new_err(format!("cannot read '{net_path}': {err}")))?;
+    let network = nnue::Network::from_bytes(&bytes).map_err(PyValueError::new_err)?;
+    Ok(network.evaluate(&board) as i64)
+}
+
 /// Whether `fen` parses as a legal position — for boundary validation.
 #[pyfunction]
 fn is_valid_fen(fen: &str) -> bool {
@@ -328,6 +339,7 @@ fn brandobot_core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(perft, module)?)?;
     module.add_function(wrap_pyfunction!(legal_moves, module)?)?;
     module.add_function(wrap_pyfunction!(evaluate, module)?)?;
+    module.add_function(wrap_pyfunction!(nnue_evaluate, module)?)?;
     module.add_function(wrap_pyfunction!(is_valid_fen, module)?)?;
     Ok(())
 }

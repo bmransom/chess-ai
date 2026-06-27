@@ -88,7 +88,8 @@ field, and record must fit. The chess logic lives in the Rust core
 | 768 feature set | An input feature per `(piece type, color, square)`, perspective-relative | `nnue` | |
 | Perspective network | Paired side-to-move / not-to-move accumulators concatenated before the output | `nnue` | |
 | Squared clipped-ReLU | The activation clamping an accumulator to `[0, QA]` then squaring | `nnue` | |
-| bullet | The NNUE trainer used to produce the network | `jw1912/bullet` | |
+| bullet | The trainer whose 768-net architecture and integer-quantization conventions this net follows | `jw1912/bullet` | |
+| MPS | Apple's Metal Performance Shaders — PyTorch's GPU backend, used to train the net | `train.py` | |
 | Teacher | The strong engine whose evaluation labels the training positions | Stockfish | |
 | Knowledge distillation | Training a net to predict a stronger engine's evaluation | `nnue` | |
 
@@ -108,6 +109,8 @@ transformer follow [Chess Programming Wiki](https://www.chessprogramming.org/NNU
 and Stockfish conventions (NNUE originates with Yu Nasu in shogi); the 768 feature
 set, the perspective network, and the squared clipped-ReLU follow the
 [`jw1912/bullet`](https://github.com/jw1912/bullet) trainer's conventions and
-CPW's NNUE article — Stockfish itself uses the larger HalfKAv2_hm set. The teacher
+CPW's NNUE article — Stockfish itself uses the larger HalfKAv2_hm set. We borrow
+bullet's conventions but not bullet: the net is trained by `train.py` on PyTorch's
+MPS backend (the Apple Silicon GPU), since bullet has no Metal backend. The teacher
 and knowledge distillation follow Stockfish's own NNUE bootstrap (the net learns a
 stronger engine's evaluations).

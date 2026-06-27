@@ -1,6 +1,6 @@
 ---
 title: NNUE evaluation — design
-description: A borrowed 768 perspective NNUE — bullet-trained on self-play, integer-quantized, incrementally updated on make/unmake, behind a flag, measured by SPRT.
+description: A borrowed 768 perspective NNUE — trained on teacher-labeled self-play, integer-quantized, incrementally updated on make/unmake, behind a flag, measured by SPRT.
 ---
 
 > **Status:** Planned (2026-06-26) — tracked on the [board](../../ROADMAP.md).
@@ -14,7 +14,7 @@ description: A borrowed 768 perspective NNUE — bullet-trained on self-play, in
 | Approach | Borrow an architecture; supervised regression by distillation | Drops into the existing alpha-beta search; not AlphaZero's MCTS self-play, which would replace the search paradigm. |
 | Feature set | 768 (piece type × color × square), perspective | The simplest viable modern net; no king buckets, so a king move needs no accumulator refresh. |
 | Topology | `(768 → 256)×2 → 1`, squared clipped-ReLU (SCReLU) | bullet's canonical first net; one hidden width to tune later. |
-| Trainer | bullet (Rust) | The most widely adopted NNUE trainer; matches the repo's Rust stack; trains in hours. |
+| Trainer | PyTorch on MPS | The training host is an Apple Silicon Mac (Metal, no CUDA); PyTorch's MPS backend trains on the GPU. We own the `.nnue` format, so a small trainer (`scripts/train.py`) exports to it directly — no bullet build, no bulletformat. |
 | Training data | Self-play positions, teacher-labeled (Stockfish eval) | Distillation gives a strong first net without strong self-play — it defuses the data-quality risk. The net stays ours; only the label is borrowed, which rating lists accept (a borrowed *net* would not). |
 | Quantization | `QA = 255`, `QB = 64`, `SCALE = 400`, int16 accumulator | bullet's defaults; integer math keeps make/unmake exact and fast. |
 | Sign | White-positive, drop-in at the eval call | Keeps `search.rs:275` (`* perspective`) unchanged. |
@@ -103,11 +103,14 @@ a useful target until it is already strong — the teacher breaks that chicken-a
 2. **Filter.** Drop non-quiet positions — in check or with a pending capture
    (AC-2.2) — so the regression target matches a static evaluation.
 3. **Label.** Score each kept position with the teacher engine (Stockfish, fixed
-   depth or node budget), optionally blended with the game's WDL by a lambda —
-   bullet's standard target.
-4. **Convert.** Write bulletformat (FEN + score + WDL).
-5. **Train.** Run bullet on the `(768 → 256)×2 → 1` net; export the quantized
-   network at the agreed `QA`/`QB`/`SCALE`.
+   depth or node budget); write `<fen> | <cp> | <wdl>` records, carrying both the
+   teacher's centipawns and the game's WDL so the trainer blends them by its lambda.
+4. **Train + export.** `scripts/train.py` trains the `(768 → 256)×2 → 1` net on
+   MPS (the target is `λ·sigmoid(cp/SCALE) + (1−λ)·wdl`, side-to-move relative),
+   quantizes to `QA`/`QB`/`SCALE`, and writes the BNN1 `.nnue` file `nnue.rs`
+   loads — no intermediate trainer format. Its feature indexing and forward pass
+   mirror `nnue.rs` exactly, verified after export: the engine's integer eval
+   matches the float model within quantization error (`nnue_evaluate`).
 
 **The teacher is new tooling.** A provisioning step fetches the Stockfish binary
 (analogous to `fetch_uho.py` for the opening book), and a labeling step drives it
@@ -127,7 +130,7 @@ of positions is the slow step.
 | Metric | What it tells us | How measured |
 |---|---|---|
 | Elo vs PeSTO | Whether the net is worth shipping — the decisive gate | Fair-match SPRT, `sprt.py` (flag-on vs flag-off) |
-| Training loss | Whether the net is learning the teacher's evaluation | bullet's per-epoch loss curve |
+| Training loss | Whether the net is learning the teacher's evaluation | the trainer's per-epoch loss curve |
 | Node rate (nps) | Whether the eval stays fast enough to be worth it | self-play / `measure_nps`, NNUE vs PeSTO |
 | refresh == incremental | Correctness of the fast accumulator path | equivalence test over a self-play game (AC-3.3) |
 
@@ -163,7 +166,8 @@ is not shipped.
 | 768 feature set | An input feature per `(piece type, color, square)`, perspective-relative | bullet; CPW "NNUE" |
 | Perspective network | Paired side-to-move / not-to-move accumulators concatenated before the output | bullet |
 | Squared clipped-ReLU | The activation clamping an accumulator to `[0, QA]` then squaring | bullet; CPW "NNUE" |
-| bullet | The NNUE trainer used to produce the network | `jw1912/bullet` |
+| bullet | The trainer whose 768-net architecture and integer-quantization conventions this net follows | `jw1912/bullet` |
+| MPS | Apple's Metal Performance Shaders — PyTorch's GPU backend, the training host's accelerator | PyTorch `torch.backends.mps` |
 | Teacher | The strong engine whose evaluation labels the training positions | Stockfish; CPW "NNUE" |
 | Knowledge distillation | Training a net to predict a stronger engine's evaluation | CPW "NNUE"; Stockfish |
 
@@ -190,6 +194,12 @@ engine's vocabulary; each names its prior art per the glossary contract.
   alternative.
 - **Borrow a Stockfish net directly.** Rejected: its HalfKAv2_hm architecture does
   not fit our 768 net, and it would be a clone regardless.
+- **bullet (Rust) as the trainer.** Deferred: bullet's edge is CUDA, but the
+  training host is an Apple Silicon Mac — bullet has no Metal backend, so it would
+  run CPU-only, plus a git clone, a build, and a bulletformat writer. PyTorch's MPS
+  backend trains on the Mac's GPU and we export to our own `.nnue` format directly.
+  bullet stays the better choice on a CUDA host; we borrow only its architecture and
+  quantization conventions.
 
 ## Risks
 
