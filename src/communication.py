@@ -21,7 +21,10 @@ def talk():
     chess to brandobot_core. A single Searcher holds the game's position and
     transposition table."""
     searcher = brandobot_core.Searcher()
-    depth = parse_depth()
+    depth, net = parse_engine_args()
+    if net:
+        searcher.load_nnue(net)
+        print(f">>> loaded nnue: {net}", file=sys.stderr)
 
     while True:
         message = input()
@@ -121,8 +124,15 @@ def set_position(searcher, message):
         searcher.set_position(fen=" ".join(head[1:]), moves=moves)
 
 
-def parse_depth():
+def parse_engine_args():
+    """The engine's startup options: the default search depth and an optional
+    NNUE network file. With `--net`, leaf positions evaluate through the network;
+    without it, the hand-written evaluation. A fair-match SPRT compares the two
+    builds by passing `--net` to one engine only."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--depth", default=3, help="default search depth (default: 3)")
+    parser.add_argument(
+        "--net", default=None, help="NNUE network file; omit for the hand-written eval"
+    )
     args, _ = parser.parse_known_args()
-    return int(args.depth)
+    return int(args.depth), args.net
