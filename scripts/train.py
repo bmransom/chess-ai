@@ -35,7 +35,6 @@ QA = 255
 QB = 64
 SCALE = 400
 MAGIC = b"BNN1"
-MAGIC2 = b"BNN2"  # adds a per-bucket output layer (mixture of experts)
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -95,30 +94,27 @@ def screlu(x):
 
 
 class PerspectiveNet(nn.Module):
-    """`(768 -> 256)x2 -> buckets`: one shared feature transformer, side-to-move and
-    opponent accumulators concatenated, then `buckets` output heads. The position's
-    material-indexed bucket selects which head's logit is used — a hard-gated mixture
-    of experts (`buckets=1` is the plain dense net). `sigmoid` gives the win
-    probability, `* SCALE` gives centipawns."""
+    """`(768 -> 256)x2 -> 1`: one shared feature transformer, side-to-move and
+    opponent accumulators concatenated, a single output (a logit; `sigmoid` gives
+    the win probability, `* SCALE` gives centipawns)."""
 
-    def __init__(self, buckets=1):
+    def __init__(self):
         super().__init__()
         self.ft = nn.Linear(INPUT, HIDDEN)
-        self.out = nn.Linear(2 * HIDDEN, buckets)
+        self.out = nn.Linear(2 * HIDDEN, 1)
 
-    def forward(self, white, black, stm, bucket):
+    def forward(self, white, black, stm):
         w = self.ft(white)
         b = self.ft(black)
         accumulator_stm = stm * w + (1.0 - stm) * b
         accumulator_nstm = stm * b + (1.0 - stm) * w
-        heads = self.out(torch.cat([screlu(accumulator_stm), screlu(accumulator_nstm)], dim=1))
-        return heads.gather(1, bucket)
+        return self.out(torch.cat([screlu(accumulator_stm), screlu(accumulator_nstm)], dim=1))
 
 
-def make_batch(feats, target, stm, bucket, index):
+def make_batch(feats, target, stm, index):
     """Dense [B, 768] perspective inputs, built on-device by scatter from the
     padded feature-index rows (−1 padding contributes nothing). `feats`, `target`,
-    `stm`, and `bucket` are already on the device, so batching never leaves the GPU."""
+    and `stm` are already on the device, so batching never leaves the GPU."""
     rows = feats[index].long()
     white_idx, black_idx = rows[:, :MAX_PIECES], rows[:, MAX_PIECES:]
     size = rows.shape[0]
@@ -126,17 +122,7 @@ def make_batch(feats, target, stm, bucket, index):
     black = torch.zeros(size, INPUT, device=rows.device)
     white.scatter_add_(1, white_idx.clamp(min=0), (white_idx >= 0).float())
     black.scatter_add_(1, black_idx.clamp(min=0), (black_idx >= 0).float())
-    return white, black, stm[index].unsqueeze(1), target[index].unsqueeze(1), bucket[index].unsqueeze(1)
-
-
-def output_buckets(feats_t, buckets):
-    """The material-indexed bucket for each position, mirroring `nnue.rs`
-    `output_bucket`: piece count → `(count-1)/(32/buckets)`, clamped. Computed from
-    the on-device feature rows (a perspective lists all pieces, so the active count
-    in the first half is the piece count)."""
-    divisor = max(32 // buckets, 1)
-    piece_count = (feats_t[:, :MAX_PIECES] >= 0).sum(dim=1)
-    return ((piece_count - 1) // divisor).clamp(0, buckets - 1).long()
+    return white, black, stm[index].unsqueeze(1), target[index].unsqueeze(1)
 
 
 def to_device_int16(array, device, chunk=10_000_000):
@@ -155,27 +141,19 @@ def quantize(array, scale):
 
 
 def export(model, path):
-    """Quantize and write the file nnue.rs `from_bytes` reads — BNN1 for a dense net
-    (1 bucket), BNN2 (a per-bucket output layer) for a mixture of experts."""
+    """Quantize and write the BNN1 file nnue.rs `from_bytes` reads."""
     model = model.cpu()
     feature_weights = model.ft.weight.detach().numpy()
     feature_bias = model.ft.bias.detach().numpy()
-    output_weights = model.out.weight.detach().numpy()  # [buckets, 2*HIDDEN]
-    output_bias = model.out.bias.detach().numpy()  # [buckets]
-    buckets = output_weights.shape[0]
+    output_weights = model.out.weight.detach().numpy()[0]
+    output_bias = float(model.out.bias.detach().numpy()[0])
 
-    if buckets == 1:
-        blob = bytearray(MAGIC)
-        blob += struct.pack("<5i", INPUT, HIDDEN, QA, QB, SCALE)
-    else:
-        blob = bytearray(MAGIC2)
-        blob += struct.pack("<6i", INPUT, HIDDEN, buckets, QA, QB, SCALE)
+    blob = bytearray(MAGIC)
+    blob += struct.pack("<5i", INPUT, HIDDEN, QA, QB, SCALE)
     blob += quantize(feature_weights.T.reshape(-1), QA).tobytes()
     blob += quantize(feature_bias, QA).tobytes()
-    for b in range(buckets):  # output weights, bucket-major
-        blob += quantize(output_weights[b], QB).tobytes()
-    for b in range(buckets):  # output bias, one per bucket
-        blob += struct.pack("<i", int(np.clip(round(float(output_bias[b]) * QA * QB), -(2**31), 2**31 - 1)))
+    blob += quantize(output_weights, QB).tobytes()
+    blob += struct.pack("<i", int(np.clip(round(output_bias * QA * QB), -(2**31), 2**31 - 1)))
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -189,8 +167,6 @@ def verify(model, path, fens):
     import brandobot_core
 
     model = model.cpu().eval()
-    buckets = model.out.weight.shape[0]
-    divisor = max(32 // buckets, 1)
     worst = 0
     for fen in fens:
         board = chess.Board(fen)
@@ -200,9 +176,8 @@ def verify(model, path, fens):
         bd = torch.zeros(1, INPUT)
         bd[0, black] = 1.0
         stm = torch.tensor([[1.0 if board.turn == chess.WHITE else 0.0]])
-        bucket = min((len(board.piece_map()) - 1) // divisor, buckets - 1)
         with torch.no_grad():
-            logit = model(wd, bd, stm, torch.tensor([[bucket]])).item()
+            logit = model(wd, bd, stm).item()
         model_white = (SCALE * logit) if board.turn == chess.WHITE else -(SCALE * logit)
         engine_white = brandobot_core.nnue_evaluate(fen, str(path))
         worst = max(worst, abs(engine_white - model_white))
@@ -218,7 +193,6 @@ def main():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--blend", type=float, default=1.0, help="teacher-vs-result weight (lambda)")
     parser.add_argument("--limit", type=int, default=None, help="train on a random N-position subset")
-    parser.add_argument("--buckets", type=int, default=1, help="material-indexed output buckets (MoE)")
     args = parser.parse_args()
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -229,7 +203,7 @@ def main():
         index = np.random.default_rng(0).permutation(len(feats))[: args.limit]
         feats, score, stm = feats[index], score[index], stm[index]
     count = len(feats)
-    print(f"{count} positions, device={device}, blend={args.blend}, buckets={args.buckets}", file=sys.stderr)
+    print(f"{count} positions, device={device}, blend={args.blend}", file=sys.stderr)
 
     # Hold the whole dataset on the device (the M5 Pro's unified memory), so each
     # batch is a pure on-device gather + scatter — no per-step CPU↔GPU transfer.
@@ -237,9 +211,8 @@ def main():
     del feats
     target_t = torch.from_numpy(targets(score, stm, args.blend)).to(device)
     stm_t = torch.from_numpy(stm.astype(np.float32)).to(device)
-    bucket_t = output_buckets(feats_t, args.buckets)
 
-    model = PerspectiveNet(args.buckets).to(device)
+    model = PerspectiveNet().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.epochs, eta_min=args.lr * 0.02
@@ -250,9 +223,9 @@ def main():
         total = 0.0
         for start in range(0, count, args.batch):
             index = order[start : start + args.batch]
-            white, black, stm_b, target_b, bucket_b = make_batch(feats_t, target_t, stm_t, bucket_t, index)
+            white, black, stm_b, target_b = make_batch(feats_t, target_t, stm_t, index)
             optimizer.zero_grad()
-            loss = ((torch.sigmoid(model(white, black, stm_b, bucket_b)) - target_b) ** 2).mean()
+            loss = ((torch.sigmoid(model(white, black, stm_b)) - target_b) ** 2).mean()
             loss.backward()
             optimizer.step()
             total += loss.item() * index.numel()
