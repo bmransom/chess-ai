@@ -102,6 +102,16 @@ refresh; the incremental accumulator is Wave 3.
 - **4.1 SPRT vs PeSTO.** Run a fair-match SPRT (`sprt.py`) of the NNUE build (flag
   on) against the PeSTO build (flag off). *Gate: AC-5.1 — the SPRT verdict is
   recorded; the net is retained only on a pass.*
+  **Measured (2026-06-27) — net #1 not retained.** Candidate `--net` (a `(768 →
+  256)×2 → 1` net trained on 1,157,592 teacher-labeled self-play positions, loss
+  0.0074) vs the PeSTO build, 100 pairs at `--nodes 16000`: **Elo −85.0
+  [−126.4, −45.9]**, LLR −0.95 (inconclusive against the [0, 5] bounds, but the
+  point estimate is clearly negative). The net loses, so it is **not retained**.
+  The cost gate passed — `134,453` nps (NNUE) vs `135,213` nps (PeSTO), a 0.6%
+  slowdown — so the incremental accumulator costs ~nothing; the gap is pure
+  evaluation quality. The fix is data: ~1.16M positions is ~6 samples per
+  parameter, far below what NNUE wants. Iterate with a larger dataset (the
+  pipeline made 1.16M in ~50 min) and tune `--blend` / epochs / play-depth.
 
 ## Wave 5 — Docs & board
 
