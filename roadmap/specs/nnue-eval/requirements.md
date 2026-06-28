@@ -10,8 +10,8 @@ description: User stories and EARS acceptance criteria for a borrowed NNUE evalu
 Add a learned evaluation: an NNUE (Efficiently Updatable Neural Network) that
 replaces the tapered PeSTO score inside the existing alpha-beta search. Borrow a
 proven architecture rather than invent one — the simplest viable modern net: a
-**768 perspective network** (`(768 → 256)×2 → 1`), trained with the **bullet**
-trainer on self-play positions **labeled by a teacher engine** (Stockfish eval —
+**768 perspective network** (`(768 → 256)×2 → 1`), trained on **PyTorch (MPS)**
+over self-play positions **labeled by a teacher engine** (Stockfish eval —
 knowledge distillation), quantized to integers, and updated
 incrementally on make/unmake. The net stays ours — our architecture, our weights;
 only the training signal is borrowed. The new path sits behind a flag; the PeSTO
@@ -30,7 +30,7 @@ from data instead of hand-tuned tables.
 - AC-1.4 WHEN loading a network, THE SYSTEM SHALL read a quantized little-endian network file and reject a file whose header or layer dimensions do not match the compiled architecture.
 - AC-1.5 WHEN a color-mirrored position with the side to move swapped is evaluated, THE SYSTEM SHALL return the negation of the original — an antisymmetry the perspective design guarantees by construction.
 
-## Story 2 — Borrowed trainer and self-play data
+## Story 2 — Training pipeline and self-play data
 
 As the maintainer, I want a reproducible training pipeline, so the net can be
 regenerated and improved.
@@ -38,7 +38,7 @@ regenerated and improved.
 - AC-2.1 WHEN building a training set, THE SYSTEM SHALL draw positions from self-play games and label each with a teacher engine's evaluation (Stockfish, at a fixed depth or node budget), optionally blended with the game result (WDL).
 - AC-2.2 WHEN selecting a position for training, THE SYSTEM SHALL exclude non-quiet positions (in check or with a pending capture), so the target matches a static evaluation.
 - AC-2.3 WHEN labeling, THE SYSTEM SHALL provision the teacher engine reproducibly (a fetch step, as with the opening book) and record its identity, version, and per-position budget.
-- AC-2.4 WHEN training, THE SYSTEM SHALL use the bullet trainer over a bulletformat dataset and export a quantized network whose `QA`, `QB`, and `SCALE` match the inference constants.
+- AC-2.4 WHEN training, THE SYSTEM SHALL train on PyTorch (MPS) over the labeled dataset and export a quantized BNN1 network — readable by the loader (AC-1.4) — whose `QA`, `QB`, and `SCALE` match the inference constants.
 
 ## Story 3 — Incremental accumulator
 

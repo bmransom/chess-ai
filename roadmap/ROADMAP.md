@@ -128,7 +128,7 @@ engine's speed, so per-term retention stays unverified.
 
 Add a learned static evaluation inside the existing alpha-beta search: borrow the
 simplest viable modern architecture — a 768 perspective network
-(`(768 → 256)×2 → 1`), trained with a PyTorch (MPS) trainer on self-play positions
+(`(768 → 256)×2 → 1`), trained on PyTorch (MPS) over self-play positions
 labeled by a teacher engine (Stockfish eval — knowledge distillation),
 integer-quantized, and updated incrementally on make/unmake. The net stays ours;
 only the training label is borrowed, which rating lists accept. The new path sits
