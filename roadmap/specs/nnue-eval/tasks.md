@@ -128,6 +128,9 @@ refresh; the incremental accumulator is Wave 3.
   the census CI is conclusive. The lever was **data volume** (research-confirmed:
   Leorik trains the identical net on 622M positions), with the cosine LR schedule
   a secondary win. Net #3 ships as `nets/net.nnue`. See `assets/elo-vs-data.png`.
+  **Confirmed (2026-06-28):** a 275-pair SPRT formally **accepted H1** (LLR +2.95
+  crossed the [0, 5] boundary) at **+115.2 Elo [+90.7, +141.0]** — the tighter,
+  more accurate estimate. AC-5.1 met; the net is retained and shipped.
 
 ## Wave 5 — Docs & board
 
