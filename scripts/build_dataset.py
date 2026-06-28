@@ -59,7 +59,13 @@ def deepest(path, min_depth):
 
 
 def build(shards, count, min_depth, out):
-    feats = np.full((count, 2 * MAX_PIECES), -1, dtype=np.int16)
+    # Write feats straight to a disk-backed memmap: at 300M positions the array is
+    # ~38 GB, too big to hold in RAM next to pandas during the build.
+    out.mkdir(parents=True, exist_ok=True)
+    feats = np.lib.format.open_memmap(
+        out / "feats.npy", mode="w+", dtype=np.int16, shape=(count, 2 * MAX_PIECES)
+    )
+    feats[:] = -1
     scores = np.empty(count, dtype=np.int16)
     stms = np.empty(count, dtype=np.int8)
     written = 0
@@ -81,10 +87,11 @@ def build(shards, count, min_depth, out):
         if written >= count:
             break
 
-    out.mkdir(parents=True, exist_ok=True)
-    np.save(out / "feats.npy", feats[:written])
-    np.save(out / "score.npy", scores[:written])
-    np.save(out / "stm.npy", stms[:written])
+    feats.flush()
+    if written < count:
+        raise SystemExit(f"only {written} positions available (< {count}); lower --count or add shards")
+    np.save(out / "score.npy", scores)
+    np.save(out / "stm.npy", stms)
     return written
 
 

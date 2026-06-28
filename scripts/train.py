@@ -58,7 +58,7 @@ def load_data(path):
     path = Path(path)
     if path.is_dir():
         return (
-            np.load(path / "feats.npy"),
+            np.load(path / "feats.npy", mmap_mode="r"),
             np.load(path / "score.npy"),
             np.load(path / "stm.npy"),
         )
@@ -123,6 +123,17 @@ def make_batch(feats, target, stm, index):
     white.scatter_add_(1, white_idx.clamp(min=0), (white_idx >= 0).float())
     black.scatter_add_(1, black_idx.clamp(min=0), (black_idx >= 0).float())
     return white, black, stm[index].unsqueeze(1), target[index].unsqueeze(1)
+
+
+def to_device_int16(array, device, chunk=10_000_000):
+    """Copy a possibly-memmapped int16 array to `device` in chunks, so the full
+    array is never held in (unified) RAM alongside the device copy — needed for the
+    100M+ datasets on a 64 GB machine, where numpy and the MPS tensor share memory."""
+    tensor = torch.empty(tuple(array.shape), dtype=torch.int16, device=device)
+    for start in range(0, len(array), chunk):
+        block = np.ascontiguousarray(array[start : start + chunk])
+        tensor[start : start + len(block)] = torch.from_numpy(block).to(device)
+    return tensor
 
 
 def quantize(array, scale):
@@ -196,7 +207,8 @@ def main():
 
     # Hold the whole dataset on the device (the M5 Pro's unified memory), so each
     # batch is a pure on-device gather + scatter — no per-step CPU↔GPU transfer.
-    feats_t = torch.from_numpy(feats).to(device)
+    feats_t = to_device_int16(feats, device)
+    del feats
     target_t = torch.from_numpy(targets(score, stm, args.blend)).to(device)
     stm_t = torch.from_numpy(stm.astype(np.float32)).to(device)
 
