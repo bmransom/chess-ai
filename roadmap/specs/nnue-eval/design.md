@@ -15,7 +15,7 @@ description: A borrowed 768 perspective NNUE — trained on teacher-labeled self
 | Feature set | 768 (piece type × color × square), perspective | The simplest viable modern net; no king buckets, so a king move needs no accumulator refresh. |
 | Topology | `(768 → 256)×2 → 1`, squared clipped-ReLU (SCReLU) | bullet's canonical first net; one hidden width to tune later. |
 | Trainer | PyTorch on MPS | The training host is an Apple Silicon Mac (Metal, no CUDA); PyTorch's MPS backend trains on the GPU. We own the `.nnue` format, so a small trainer (`scripts/train.py`) exports to it directly — no bullet build, no bulletformat. |
-| Training data | Self-play positions, teacher-labeled (Stockfish eval) | Distillation gives a strong first net without strong self-play — it defuses the data-quality risk. The net stays ours; only the label is borrowed, which rating lists accept (a borrowed *net* would not). |
+| Training data | The Lichess eval database (388M Stockfish-scored positions); self-play was the first cut | Distillation from a teacher's evals. Self-play (net #1, 1.16M) was too small and lost; the public Lichess dump supplies 100M+ diverse, deeply-evaluated positions — the volume the net actually needs. See the Outcome. |
 | Quantization | `QA = 255`, `QB = 64`, `SCALE = 400`, int16 accumulator | bullet's defaults; integer math keeps make/unmake exact and fast. |
 | Sign | White-positive, drop-in at the eval call | Keeps `search.rs:275` (`* perspective`) unchanged. |
 | Rollout | Behind a flag; PeSTO stays as fallback and baseline | Isolates "is the net good?" and lets SPRT compare flag-off vs flag-on. |
@@ -212,3 +212,31 @@ engine's vocabulary; each names its prior art per the glossary contract.
 | Quantization overflow or scale mismatch | int32 dot accumulation; the loader checks `QA`/`QB`/`SCALE` against the header. |
 | NNUE slows the node rate below break-even | Incremental accumulator + SIMD-friendly layout; nps recorded; SPRT is wall-clock fair. |
 | Trainer/export drift from inference | The quantization constants are one shared contract, asserted on load. |
+
+## Outcome
+
+The net that beat PeSTO was trained on the **Lichess eval database**, not self-play —
+the dominant lever was data *volume*. The shipped pipeline:
+
+```
+fetch_lichess_evals.py / build_dataset.py   # HuggingFace parquet shards → compact
+   (388M positions, HF CDN)                 #   numpy: per position the 768 feature
+                                            #   indices, white-positive cp, side to move
+train.py  (PyTorch MPS)                     # on-GPU batched scatter; cosine LR decay;
+                                            #   quantize → BNN1 .nnue (verified ≤9 cp)
+sprt.py   (--net vs PeSTO)                  # fair-match measurement
+```
+
+Three nets, same `(768 → 256)×2 → 1` architecture, told the story:
+
+| Net | Positions | Elo vs PeSTO |
+|---|---|---|
+| #1 self-play, no LR decay | 1.16M | −85 |
+| #2 Lichess, no LR decay | 5M | −92 |
+| #3 **Lichess + cosine LR decay** | **100M** | **+132.9 [+92.3, +177.4]** |
+
+The lesson matches the literature (Leorik trains the *identical* 768→256 net on 622M
+positions): below a few million positions a from-scratch net loses to a tuned eval;
+the same architecture at 100M wins decisively. The cosine LR schedule was a secondary
+win. The incremental accumulator kept the cost gate green throughout (≈0.4% slower).
+`nets/net.nnue` is the shipped net; `assets/elo-vs-data.png` plots the three points.

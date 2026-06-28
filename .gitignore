@@ -38,5 +38,7 @@ knowledge/.vitepress/sidebar.generated.json
 # generated NNUE training data (large, reproducible via scripts/gen_data.py)
 data/
 
-# trained NNUE nets (artifacts, reproducible via scripts/train.py)
-nets/
+# trained NNUE nets (artifacts, reproducible via scripts/train.py) — but track the
+# shipped net the engine loads by default
+nets/*
+!nets/net.nnue

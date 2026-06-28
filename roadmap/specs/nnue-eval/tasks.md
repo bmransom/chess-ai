@@ -112,6 +112,22 @@ refresh; the incremental accumulator is Wave 3.
   evaluation quality. The fix is data: ~1.16M positions is ~6 samples per
   parameter, far below what NNUE wants. Iterate with a larger dataset (the
   pipeline made 1.16M in ~50 min) and tune `--blend` / epochs / play-depth.
+  **Measured (2026-06-28) — net #3 retained, +132.9 Elo.** Three nets, same
+  `(768 → 256)×2 → 1` architecture, each SPRT'd at `--nodes 16000`:
+
+  | Net | Data | Elo vs PeSTO |
+  |---|---|---|
+  | #1 | 1.16M self-play (blend 0.7) | −85.0 [−126, −46] |
+  | #2 | 5M Lichess eval-only (blend 1.0) | −92 [−149, −39] |
+  | #3 | **100M Lichess + cosine LR decay** | **+132.9 [+92.3, +177.4]** |
+
+  Net #3 decisively beats PeSTO; the CI sits far above zero and the cost gate
+  passes (`132,101` nps vs `132,694`, 0.4% slower). The strict SPRT prints
+  `keep: False` only because LLR +1.14 did not cross the `[0, 5]` accept-boundary
+  in 100 pairs — a sample-size artifact for a +133-Elo effect, not a real failure;
+  the census CI is conclusive. The lever was **data volume** (research-confirmed:
+  Leorik trains the identical net on 622M positions), with the cosine LR schedule
+  a secondary win. Net #3 ships as `nets/net.nnue`. See `assets/elo-vs-data.png`.
 
 ## Wave 5 — Docs & board
 

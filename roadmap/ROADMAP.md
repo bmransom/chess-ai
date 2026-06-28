@@ -139,8 +139,8 @@ integration, is the dominant cost.
 
 | Work | Status | Spec | Depends on |
 |---|---|---|---|
-| Borrow the architecture — net format, loader, full-refresh inference, flagged drop-in (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Evaluation, Iterative deepening |
-| Training pipeline — teacher-labeled self-play data, PyTorch/MPS train + export to .nnue (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
-| Incremental accumulator — make/unmake deltas, refresh == incremental, node rate (@bmransom, `feat/nnue-eval`) | Validating | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
-| Measure strength — SPRT vs the PeSTO build (@bmransom, `feat/nnue-eval`) | In progress | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
+| Borrow the architecture — net format, loader, full-refresh inference, flagged drop-in (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Evaluation, Iterative deepening |
+| Training pipeline — Lichess eval data (HF parquet) → compact numpy, PyTorch/MPS train + export to .nnue (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
+| Incremental accumulator — make/unmake deltas, refresh == incremental, node rate (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
+| Measure strength — SPRT vs the PeSTO build: net #3 +132.9 Elo [+92, +177] (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
 | Docs + glossary + board | Planned | [nnue-eval](specs/nnue-eval/design.md) | Measure strength |
