@@ -240,3 +240,23 @@ positions): below a few million positions a from-scratch net loses to a tuned ev
 the same architecture at 100M wins decisively. The cosine LR schedule was a secondary
 win. The incremental accumulator kept the cost gate green throughout (≈0.4% slower).
 `nets/net.nnue` is the shipped net; `assets/elo-vs-data.png` plots the three points.
+
+### Controlled data-size sweep
+
+A clean Elo-vs-data curve (same pipeline, only the position count varies — random
+subsets via `train.py --limit`, each SPRT'd 60 pairs vs PeSTO by `curve.py`):
+
+| Positions | Elo vs PeSTO |
+|---|---|
+| 5M | −12 [−58, +34] |
+| 20M | +92 [+38, +150] |
+| 50M | +134 [+84, +190] |
+| 100M | +108 [+53, +168] |
+| 300M | +154 [+106, +208] |
+
+Steep rise to ~50M, then a noisy plateau ~+120–155 (50/100/300M overlap within the
+60-pair CIs). Two lessons sharper than the first three-net read: (1) with the cosine
+LR schedule even **5M is ≈ even** with PeSTO (net #2 without the schedule was −92, so
+the schedule alone was worth ~90 Elo); (2) returns flatten by ~50M for this 768→256
+net — 300M trains right at the 64 GB unified-memory wall (it swaps), the point where
+real trainers stream batches from disk. See `assets/elo-vs-data-controlled.png`.
