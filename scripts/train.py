@@ -181,10 +181,16 @@ def main():
     parser.add_argument("--batch", type=int, default=16384)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--blend", type=float, default=1.0, help="teacher-vs-result weight (lambda)")
+    parser.add_argument("--limit", type=int, default=None, help="train on a random N-position subset")
     args = parser.parse_args()
 
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     feats, score, stm = load_data(args.data)
+    if args.limit and args.limit < len(feats):
+        # a random subset is a representative sample of the (diverse) full set, so a
+        # data-size sweep stays controlled — same pipeline, only the count varies.
+        index = np.random.default_rng(0).permutation(len(feats))[: args.limit]
+        feats, score, stm = feats[index], score[index], stm[index]
     count = len(feats)
     print(f"{count} positions, device={device}, blend={args.blend}", file=sys.stderr)
 
