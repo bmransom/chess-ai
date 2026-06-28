@@ -123,7 +123,11 @@ impl<'a> Searcher<'a> {
         match self.eval_net {
             Some(net) => match &self.accumulator {
                 Some(accumulator) => {
-                    let score = net.evaluate_accumulator(accumulator, board.side_to_move());
+                    let score = net.evaluate_accumulator(
+                        accumulator,
+                        board.side_to_move(),
+                        net.output_bucket(board),
+                    );
                     debug_assert_eq!(
                         score,
                         net.evaluate(board),

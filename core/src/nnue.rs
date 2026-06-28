@@ -35,16 +35,24 @@ const SCALE: i32 = 400;
 /// output is ever mistaken for a forced mate.
 const EVAL_LIMIT: i32 = 30_000;
 
-/// File magic: brandobot network, format 1.
+/// File magic: brandobot network, format 1 (a single output bucket).
 const MAGIC: [u8; 4] = *b"BNN1";
+/// File magic: format 2 — a material-indexed output-bucket count in the header and
+/// the output layer repeated per bucket (a hard-gated mixture of experts).
+const MAGIC2: [u8; 4] = *b"BNN2";
 /// Feature-transformer weight count (feature-major: feature `f` owns `[f*HIDDEN..]`).
 const FEATURE_WEIGHTS: usize = INPUT * HIDDEN;
-/// Output weight count: one block per perspective.
+/// Output weight count per bucket: one block per perspective.
 const OUTPUT_WEIGHTS: usize = 2 * HIDDEN;
-/// Header: magic(4) + input(4) + hidden(4) + qa(4) + qb(4) + scale(4).
-const HEADER_LEN: usize = 24;
-/// Total network file length, in bytes.
-const FILE_LEN: usize = HEADER_LEN + (FEATURE_WEIGHTS + HIDDEN + OUTPUT_WEIGHTS) * 2 + 4;
+/// Header length by format: magic(4) + dims. V1 has 5 i32 fields (input, hidden, qa,
+/// qb, scale); V2 inserts `buckets` after `hidden`.
+const HEADER_LEN_V1: usize = 24;
+const HEADER_LEN_V2: usize = 28;
+
+/// File length, in bytes, for a `buckets`-bucket network with the given header.
+const fn file_len(buckets: usize, header_len: usize) -> usize {
+    header_len + (FEATURE_WEIGHTS + HIDDEN + buckets * OUTPUT_WEIGHTS) * 2 + buckets * 4
+}
 
 /// A quantized 768 perspective network.
 pub struct Network {
@@ -52,11 +60,15 @@ pub struct Network {
     feature_weights: Vec<i16>,
     /// Feature-transformer bias, one per accumulator unit.
     feature_bias: Vec<i16>,
-    /// Output weights: the first `HIDDEN` for the side-to-move accumulator, the
-    /// next `HIDDEN` for the opponent's.
+    /// Output weights, bucket-major: bucket `b` owns `[b*OUTPUT_WEIGHTS..]`, within
+    /// which the first `HIDDEN` are the side-to-move accumulator's, the next the
+    /// opponent's.
     output_weights: Vec<i16>,
-    /// Output bias, at the `QA * QB` scale.
-    output_bias: i32,
+    /// Output bias per bucket, at the `QA * QB` scale.
+    output_bias: Vec<i32>,
+    /// Number of material-indexed output buckets (1 = a plain dense net). The shared
+    /// feature transformer is unchanged; only the output head is selected per bucket.
+    buckets: usize,
 }
 
 /// The two perspective accumulators — White's and Black's — each the
@@ -100,32 +112,52 @@ impl Network {
     /// file whose magic, dimensions, or quantization scales do not match this
     /// compiled architecture, or whose length is wrong.
     pub fn from_bytes(bytes: &[u8]) -> Result<Network, String> {
-        if bytes.len() != FILE_LEN {
-            return Err(format!(
-                "network file is {} bytes, expected {FILE_LEN}",
-                bytes.len()
-            ));
+        if bytes.len() < 4 {
+            return Err(format!("network file is {} bytes, too short", bytes.len()));
         }
-        if bytes[0..4] != MAGIC {
+        // BNN1: a single output bucket. BNN2: `buckets` after `hidden`, then a
+        // per-bucket output layer. `fields` indexes input/hidden/qa/qb/scale.
+        let (buckets, header_len, fields) = if bytes[0..4] == MAGIC {
+            (1usize, HEADER_LEN_V1, [4usize, 8, 12, 16, 20])
+        } else if bytes[0..4] == MAGIC2 {
+            if bytes.len() < HEADER_LEN_V2 {
+                return Err(format!("network file is {} bytes, too short", bytes.len()));
+            }
+            let buckets = i32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
+            if !(1..=64).contains(&buckets) {
+                return Err(format!("network buckets is {buckets}, expected 1..=64"));
+            }
+            (buckets as usize, HEADER_LEN_V2, [4usize, 8, 16, 20, 24])
+        } else {
             return Err("network file has a bad magic header".to_string());
+        };
+        if bytes.len() < header_len {
+            return Err(format!("network file is {} bytes, too short", bytes.len()));
         }
         let header = |at: usize| {
             i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
         };
         let checks = [
-            ("input dimension", header(4), INPUT as i32),
-            ("hidden dimension", header(8), HIDDEN as i32),
-            ("QA", header(12), QA),
-            ("QB", header(16), QB),
-            ("SCALE", header(20), SCALE),
+            ("input dimension", header(fields[0]), INPUT as i32),
+            ("hidden dimension", header(fields[1]), HIDDEN as i32),
+            ("QA", header(fields[2]), QA),
+            ("QB", header(fields[3]), QB),
+            ("SCALE", header(fields[4]), SCALE),
         ];
         for (name, found, expected) in checks {
             if found != expected {
                 return Err(format!("network {name} is {found}, expected {expected}"));
             }
         }
+        let expected_len = file_len(buckets, header_len);
+        if bytes.len() != expected_len {
+            return Err(format!(
+                "network file is {} bytes, expected {expected_len}",
+                bytes.len()
+            ));
+        }
 
-        let mut cursor = HEADER_LEN;
+        let mut cursor = header_len;
         let mut take_i16 = |count: usize| -> Vec<i16> {
             let values = bytes[cursor..cursor + count * 2]
                 .chunks_exact(2)
@@ -136,19 +168,20 @@ impl Network {
         };
         let feature_weights = take_i16(FEATURE_WEIGHTS);
         let feature_bias = take_i16(HIDDEN);
-        let output_weights = take_i16(OUTPUT_WEIGHTS);
-        let output_bias = i32::from_le_bytes([
-            bytes[cursor],
-            bytes[cursor + 1],
-            bytes[cursor + 2],
-            bytes[cursor + 3],
-        ]);
+        let output_weights = take_i16(buckets * OUTPUT_WEIGHTS);
+        let output_bias = (0..buckets)
+            .map(|b| {
+                let at = cursor + b * 4;
+                i32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
+            })
+            .collect();
 
         Ok(Network {
             feature_weights,
             feature_bias,
             output_weights,
             output_bias,
+            buckets,
         })
     }
 
@@ -156,10 +189,24 @@ impl Network {
     /// until the Wave 2 trainer-export converter consumes it in production.
     #[cfg(test)]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(FILE_LEN);
-        bytes.extend_from_slice(&MAGIC);
-        for value in [INPUT as i32, HIDDEN as i32, QA, QB, SCALE] {
-            bytes.extend_from_slice(&value.to_le_bytes());
+        let mut bytes = Vec::new();
+        if self.buckets == 1 {
+            bytes.extend_from_slice(&MAGIC);
+            for value in [INPUT as i32, HIDDEN as i32, QA, QB, SCALE] {
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
+        } else {
+            bytes.extend_from_slice(&MAGIC2);
+            for value in [
+                INPUT as i32,
+                HIDDEN as i32,
+                self.buckets as i32,
+                QA,
+                QB,
+                SCALE,
+            ] {
+                bytes.extend_from_slice(&value.to_le_bytes());
+            }
         }
         for weight in self
             .feature_weights
@@ -169,7 +216,9 @@ impl Network {
         {
             bytes.extend_from_slice(&weight.to_le_bytes());
         }
-        bytes.extend_from_slice(&self.output_bias.to_le_bytes());
+        for bias in &self.output_bias {
+            bytes.extend_from_slice(&bias.to_le_bytes());
+        }
         bytes
     }
 
@@ -279,12 +328,19 @@ impl Network {
     /// The white-positive evaluation from a built accumulator. The network output
     /// is side-to-move relative; this negates it for Black so it matches the
     /// hand-written evaluation's sign, a drop-in at the search seam.
-    pub(crate) fn evaluate_accumulator(&self, acc: &Accumulator, side: Color) -> i32 {
+    pub(crate) fn evaluate_accumulator(
+        &self,
+        acc: &Accumulator,
+        side: Color,
+        bucket: usize,
+    ) -> i32 {
         let (stm, nstm) = match side {
             Color::White => (&acc.white, &acc.black),
             Color::Black => (&acc.black, &acc.white),
         };
-        let (stm_weights, nstm_weights) = self.output_weights.split_at(HIDDEN);
+        let base = bucket * OUTPUT_WEIGHTS;
+        let (stm_weights, nstm_weights) =
+            self.output_weights[base..base + OUTPUT_WEIGHTS].split_at(HIDDEN);
         let mut sum: i64 = 0;
         for (unit, weight) in stm.iter().zip(stm_weights) {
             sum += screlu(*unit) as i64 * *weight as i64;
@@ -295,7 +351,7 @@ impl Network {
 
         // The squared activation carries an extra QA factor; divide it out, add
         // the bias at the QA*QB scale, then dequantize to centipawns.
-        let activated = sum / QA as i64 + self.output_bias as i64;
+        let activated = sum / QA as i64 + self.output_bias[bucket] as i64;
         let relative = (activated * SCALE as i64) / (QA as i64 * QB as i64);
         // Clamp well below the search's mate threshold so no network output is
         // ever misread as a forced mate.
@@ -307,10 +363,26 @@ impl Network {
         }
     }
 
+    /// The material-indexed output bucket for a position: piece count → bucket, so
+    /// each bucket's output head specializes in a material regime (Stockfish's
+    /// LayerStacks). A 1-bucket net always returns 0.
+    pub(crate) fn output_bucket(&self, board: &Board) -> usize {
+        if self.buckets <= 1 {
+            return 0;
+        }
+        let pieces = board.occupied().count_ones() as usize;
+        let divisor = (32 / self.buckets).max(1);
+        (pieces.saturating_sub(1) / divisor).min(self.buckets - 1)
+    }
+
     /// The white-positive static evaluation in centipawns, by full refresh.
     pub fn evaluate(&self, board: &Board) -> i32 {
         let accumulator = self.fresh_accumulator(board);
-        self.evaluate_accumulator(&accumulator, board.side_to_move())
+        self.evaluate_accumulator(
+            &accumulator,
+            board.side_to_move(),
+            self.output_bucket(board),
+        )
     }
 }
 
@@ -325,7 +397,8 @@ pub(crate) fn test_network() -> Network {
         feature_weights: (0..FEATURE_WEIGHTS).map(pattern).collect(),
         feature_bias: (0..HIDDEN).map(|i| pattern(i + 7)).collect(),
         output_weights: (0..OUTPUT_WEIGHTS).map(|i| pattern(i + 3)).collect(),
-        output_bias: 25,
+        output_bias: vec![25],
+        buckets: 1,
     }
 }
 
@@ -484,7 +557,7 @@ mod tests {
     #[test]
     fn output_is_clamped_below_the_mate_threshold() {
         let mut net = deterministic();
-        net.output_bias = 10_000_000; // forces the raw score past the limit
+        net.output_bias = vec![10_000_000]; // forces the raw score past the limit
         assert_eq!(net.evaluate(&Board::startpos()), EVAL_LIMIT);
     }
 
@@ -518,5 +591,34 @@ mod tests {
         let mut bytes = deterministic().to_bytes();
         bytes.truncate(bytes.len() - 1);
         assert!(Network::from_bytes(&bytes).is_err());
+    }
+
+    #[test]
+    fn bucketed_net_round_trips_and_selects_by_material() {
+        // Two output buckets: bucket 1 negates bucket 0, so the chosen bucket is
+        // observable in the eval.
+        let base = deterministic();
+        let mut output_weights = base.output_weights.clone();
+        output_weights.extend(base.output_weights.iter().map(|w| -w));
+        let net = Network {
+            feature_weights: base.feature_weights.clone(),
+            feature_bias: base.feature_bias.clone(),
+            output_weights,
+            output_bias: vec![base.output_bias[0], -base.output_bias[0]],
+            buckets: 2,
+        };
+
+        let loaded = Network::from_bytes(&net.to_bytes()).unwrap();
+        assert_eq!(loaded.buckets, 2);
+
+        // 32 pieces → bucket 1 (divisor 16: 31/16); lone kings → bucket 0.
+        let start = Board::startpos();
+        let endgame = Board::from_fen("8/8/8/4k3/8/4K3/8/8 w - - 0 1").unwrap();
+        assert_eq!(net.output_bucket(&start), 1);
+        assert_eq!(net.output_bucket(&endgame), 0);
+
+        // The round-tripped net reads the per-bucket layer back identically.
+        assert_eq!(loaded.evaluate(&start), net.evaluate(&start));
+        assert_eq!(loaded.evaluate(&endgame), net.evaluate(&endgame));
     }
 }
