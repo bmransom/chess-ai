@@ -260,3 +260,23 @@ LR schedule even **5M is ≈ even** with PeSTO (net #2 without the schedule was 
 the schedule alone was worth ~90 Elo); (2) returns flatten by ~50M for this 768→256
 net — 300M trains right at the 64 GB unified-memory wall (it swaps), the point where
 real trainers stream batches from disk. See `assets/elo-vs-data-controlled.png`.
+
+### Mixture of experts — output buckets (BNN2)
+
+Stockfish-style hard-gated MoE: the shared 768→256 feature transformer is unchanged;
+the output head splits into 8 heads selected by piece count (`bucket =
+(pieces−1)/4`), each specializing in a material regime. Trained on the same 100M as
+the dense net (20 epochs), to the same loss (0.0155), then SPRT'd **head-to-head**
+against the dense net:
+
+| MoE (8 buckets) vs dense, 100M each | Elo |
+|---|---|
+| 100 pairs, `--nodes 16000` | **−13.9 [−55.7, +27.5]** |
+
+**Neutral-to-slightly-negative — the buckets don't earn their keep at this scale.**
+Splitting 100M across 8 heads leaves each expert ~12.5M positions; the extra capacity
+fit the training set equally (same loss) but didn't generalize. MoE trades
+data-per-parameter for specialization — a losing trade until you are data-rich, which
+is why Stockfish/Leorik see bucket gains only when training on *billions*. Same lesson
+as the data-size sweep: **data volume is the binding constraint.** The format and
+trainer support it (`--buckets N`, BNN2) for when that regime is reachable.
