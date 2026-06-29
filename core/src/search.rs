@@ -103,7 +103,6 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
 
     /// A worker for the parallel coordinator: it shares `shared_stop` with its peers
     /// so they all halt together once one of them reaches the budget.
-    #[allow(dead_code)] // the coordinator wires this in; reached via the Threads option in Wave 4
     fn new_worker(transposition_table: &'a Tt, shared_stop: &'a AtomicBool) -> Searcher<'a, Tt> {
         Searcher::with_optional_stop(transposition_table, Some(shared_stop))
     }
@@ -497,13 +496,13 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
 ///
 /// The table must be `Sync`, so only `LocklessTranspositionTable` reaches this
 /// path; the single-threaded `ExclusiveTranspositionTable` is `!Sync` and cannot.
-#[allow(dead_code)] // reached once the Threads option selects it in Wave 4
 pub fn search_parallel<Tt: TranspositionTable + Sync>(
     board: &Board,
     limits: &SearchLimits,
     now: Instant,
     transposition_table: &Tt,
     thread_count: usize,
+    eval_net: Option<&Network>,
 ) -> SearchResult {
     let shared_stop = AtomicBool::new(false);
     std::thread::scope(|scope| {
@@ -512,7 +511,8 @@ pub fn search_parallel<Tt: TranspositionTable + Sync>(
                 let mut worker_board = board.clone();
                 let shared_stop = &shared_stop;
                 scope.spawn(move || {
-                    let mut searcher = Searcher::new_worker(transposition_table, shared_stop);
+                    let mut searcher = Searcher::new_worker(transposition_table, shared_stop)
+                        .with_eval_net(eval_net);
                     searcher.search(&mut worker_board, limits, now)
                 })
             })
@@ -1031,7 +1031,7 @@ mod tests {
             max_depth: 4,
             ..Default::default()
         };
-        search_parallel(&board, &limits, Instant::now(), &table, threads)
+        search_parallel(&board, &limits, Instant::now(), &table, threads, None)
     }
 
     #[test]
@@ -1056,7 +1056,7 @@ mod tests {
             move_time_ms: Some(200),
             ..Default::default()
         };
-        let result = search_parallel(&board, &limits, Instant::now(), &table, 4);
+        let result = search_parallel(&board, &limits, Instant::now(), &table, 4, None);
         assert!(result.best_move.is_some());
         assert!(result.elapsed_ms < 2_000, "elapsed {}", result.elapsed_ms);
     }
