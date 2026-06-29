@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 
 import brandobot_core
@@ -21,10 +22,13 @@ def talk():
     chess to brandobot_core. A single Searcher holds the game's position and
     transposition table."""
     searcher = brandobot_core.Searcher()
-    depth, net = parse_engine_args()
+    depth, net, threads = parse_engine_args()
     if net:
         searcher.load_nnue(net)
         print(f">>> loaded nnue: {net}", file=sys.stderr)
+    if threads > 1:
+        searcher.set_threads(threads)
+        print(f">>> threads: {threads}", file=sys.stderr)
 
     while True:
         message = input()
@@ -41,6 +45,7 @@ def command(searcher, depth, message):
     if message == "uci":
         print("id name brandobot")
         print("id author Brandon Ransom")
+        print(f"option name Threads type spin default 1 min 1 max {os.cpu_count() or 1}")
         print("uciok")
         return
 
@@ -52,6 +57,10 @@ def command(searcher, depth, message):
         searcher.new_game()
         return
 
+    if message.startswith("setoption"):
+        set_option(searcher, message)
+        return
+
     if message.startswith("position"):
         set_position(searcher, message)
         return
@@ -59,6 +68,18 @@ def command(searcher, depth, message):
     if message.startswith("go"):
         go(searcher, depth, message)
         return
+
+
+def set_option(searcher, message):
+    """Handle `setoption name <Name> value <Value>`. Only `Threads` is supported —
+    it sets the Lazy SMP worker count, clamped to `[1, cpu_count]`."""
+    tokens = message.split()
+    if "name" not in tokens or "value" not in tokens:
+        return
+    name = tokens[tokens.index("name") + 1].lower()
+    value = tokens[tokens.index("value") + 1]
+    if name == "threads":
+        searcher.set_threads(min(max(1, int(value)), os.cpu_count() or 1))
 
 
 def go(searcher, default_depth, message):
@@ -134,5 +155,8 @@ def parse_engine_args():
     parser.add_argument(
         "--net", default=None, help="NNUE network file; omit for the hand-written eval"
     )
+    parser.add_argument(
+        "--threads", type=int, default=1, help="Lazy SMP worker threads (default: 1)"
+    )
     args, _ = parser.parse_known_args()
-    return int(args.depth), args.net
+    return int(args.depth), args.net, int(args.threads)

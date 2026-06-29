@@ -24,7 +24,7 @@ use pyo3::types::{PyDict, PyList};
 use board::Board;
 use chess_move::parse_uci;
 use movegen::generate_legal;
-use tt::{Flag, TranspositionTable};
+use tt::{ExclusiveTranspositionTable, Flag, LocklessTranspositionTable};
 
 /// The UCI null move, returned when no legal move exists.
 const NULL_MOVE: &str = "0000";
@@ -54,17 +54,26 @@ impl CapturedNode {
     }
 }
 
-/// Searcher — owns a Board and a TranspositionTable and returns the best Move for
-/// the current position. The Python wrappers hold one per game.
-#[pyclass]
+/// Searcher — owns a Board and a transposition table and returns the best Move
+/// for the current position. The Python wrappers hold one per game. It is
+/// `unsendable` because the `ExclusiveTranspositionTable` backend is `RefCell`-backed
+/// (`!Sync`): the engine object is thread-affine to the Python thread that drives it.
+#[pyclass(unsendable)]
 struct Searcher {
     board: Board,
-    transposition_table: TranspositionTable,
+    transposition_table: ExclusiveTranspositionTable,
     last_decision_tree: Option<DecisionTree>,
     /// The NNUE network, when one has been loaded; otherwise leaf positions use
     /// the hand-written evaluation. Engine configuration, not game state — it
     /// survives `new_game`.
     eval_net: Option<nnue::Network>,
+    /// Worker-thread count for time-based search (Lazy SMP). `1` keeps the
+    /// single-threaded path; `>1` runs that many workers over `lockless_table`.
+    /// Engine configuration, not game state — it survives `new_game`.
+    threads: usize,
+    /// The `Sync` table the parallel workers share; the single-threaded path uses
+    /// `transposition_table`. Cleared on `new_game`.
+    lockless_table: LocklessTranspositionTable,
 }
 
 #[pymethods]
@@ -73,18 +82,28 @@ impl Searcher {
     fn new() -> Self {
         Searcher {
             board: Board::startpos(),
-            transposition_table: TranspositionTable::new(),
+            transposition_table: ExclusiveTranspositionTable::new(),
             last_decision_tree: None,
             eval_net: None,
+            threads: 1,
+            lockless_table: LocklessTranspositionTable::new(),
         }
     }
 
-    /// Reset to the starting position, clear the transposition table, and drop
-    /// any captured decision tree. The loaded NNUE network, if any, is kept.
+    /// Reset to the starting position, clear the transposition tables, and drop
+    /// any captured decision tree. The loaded NNUE network and thread count are kept.
     fn new_game(&mut self) {
         self.board = Board::startpos();
-        self.transposition_table = TranspositionTable::new();
+        self.transposition_table = ExclusiveTranspositionTable::new();
+        self.lockless_table = LocklessTranspositionTable::new();
         self.last_decision_tree = None;
+    }
+
+    /// Set the worker-thread count for time-based search (Lazy SMP). `1` keeps the
+    /// bit-identical single-threaded path; `>1` runs that many workers sharing the
+    /// lockless table. Node-limited search always runs single-threaded.
+    fn set_threads(&mut self, threads: usize) {
+        self.threads = threads.max(1);
     }
 
     /// Load an NNUE network from a file; leaf positions then evaluate through it
@@ -162,15 +181,15 @@ impl Searcher {
         if capture_tree {
             let plies = tree_depth.clamp(1, depth.max(1));
             let nodes = {
-                let mut scout = search::Searcher::new(&mut self.transposition_table)
+                let mut scout = search::Searcher::new(&self.transposition_table)
                     .with_eval_net(self.eval_net.as_ref());
                 scout.capture_tree(&mut self.board, depth as i32, plies, 0)
             };
             let captured = nodes.into_iter().map(CapturedNode::from_tree).collect();
             self.last_decision_tree = Some((self.board.to_fen(), captured));
         }
-        let mut searcher = search::Searcher::new(&mut self.transposition_table)
-            .with_eval_net(self.eval_net.as_ref());
+        let mut searcher =
+            search::Searcher::new(&self.transposition_table).with_eval_net(self.eval_net.as_ref());
         match searcher.best_move(&mut self.board, depth as i32) {
             Some(mv) => mv.to_uci(),
             None => NULL_MOVE.to_string(),
@@ -206,10 +225,22 @@ impl Searcher {
             moves_to_go,
             node_limit,
         };
-        let result = {
-            let mut searcher = search::Searcher::new(&mut self.transposition_table)
+        let now = std::time::Instant::now();
+        let result = if self.threads > 1 && limits.node_limit.is_none() {
+            // Lazy SMP: time-based parallel search over the shared lockless table.
+            // Node-limited search stays single-threaded for deterministic effort.
+            search::search_parallel(
+                &self.board,
+                &limits,
+                now,
+                &self.lockless_table,
+                self.threads,
+                self.eval_net.as_ref(),
+            )
+        } else {
+            let mut searcher = search::Searcher::new(&self.transposition_table)
                 .with_eval_net(self.eval_net.as_ref());
-            searcher.search(&mut self.board, &limits, std::time::Instant::now())
+            searcher.search(&mut self.board, &limits, now)
         };
 
         let (score_centipawns, mate_in_moves) = match search::mate_in_moves(result.score) {

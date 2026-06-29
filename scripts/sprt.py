@@ -321,6 +321,13 @@ def main():
     parser.add_argument(
         "--nodes", type=int, default=200_000, help="fixed node budget per move"
     )
+    parser.add_argument(
+        "--movetime",
+        type=int,
+        default=None,
+        help="per-move time in ms (time control; overrides --nodes — needed to measure "
+        "Lazy SMP, which the node limit forces back to one thread)",
+    )
     parser.add_argument("--elo0", type=float, default=0.0, help="H0 Elo bound")
     parser.add_argument("--elo1", type=float, default=5.0, help="H1 Elo bound")
     parser.add_argument("--alpha", type=float, default=0.05, help="type-I error rate")
@@ -363,7 +370,11 @@ def main():
     # pair source is lazy, so run_sprt's max_pairs caps the run without truncating
     # the book (truncating it would collapse the census CI at exhaustion).
     population = len(openings)
-    limit = match_core.make_limit(None, None, nodes=args.nodes)
+    limit = (
+        match_core.make_limit(args.movetime, None)
+        if args.movetime
+        else match_core.make_limit(None, None, nodes=args.nodes)
+    )
 
     pairs = _engine_pairs(
         shlex.split(args.engine1),

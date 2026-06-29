@@ -2,6 +2,7 @@
 //! transposition table, mate-distance scoring, and a triangular principal
 //! variation. Deepens one ply at a time within a time budget.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::board::Board;
@@ -34,6 +35,11 @@ const MAX_BUDGET_PERCENT: u64 = 40;
 const MAX_SEARCH_PLY: usize = 128;
 /// Clamp history scores to keep them bounded and ordering stable.
 const HISTORY_MAX: i32 = 1 << 24;
+/// Per-helper depth-skip schedule (Stockfish `SkipSize`/`SkipPhase`, `search.cpp`):
+/// helper `i` skips root depth `d` when `((d + SKIP_PHASE[j]) / SKIP_SIZE[j])` is odd,
+/// `j = (i − 1) mod 20`, fanning the workers across plies (Wave 6 search diversity).
+const SKIP_SIZE: [i32; 20] = [1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4];
+const SKIP_PHASE: [i32; 20] = [0, 1, 0, 1, 2, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /// The limits for one search. All times are milliseconds.
 #[derive(Clone, Copy, Default)]
@@ -68,8 +74,8 @@ pub struct TreeNode {
     pub children: Vec<TreeNode>,
 }
 
-pub struct Searcher<'a> {
-    transposition_table: &'a mut TranspositionTable,
+pub struct Searcher<'a, Tt: TranspositionTable> {
+    transposition_table: &'a Tt,
     /// Zobrist keys along the current line, for threefold-repetition detection.
     position_history: Vec<u64>,
     /// History-heuristic scores, indexed `[side][from][to]` flattened.
@@ -80,6 +86,14 @@ pub struct Searcher<'a> {
     deadline: Option<Instant>,
     node_limit: Option<u64>,
     stopped: bool,
+    /// Set when running as a parallel worker: a stop flag shared with peer workers
+    /// so they halt together when the budget expires. `None` single-threaded, which
+    /// keeps `should_stop` — and the whole `Threads = 1` path — bit-identical.
+    shared_stop: Option<&'a AtomicBool>,
+    /// Worker index for depth staggering (Wave 6): 0 is the main worker (and the
+    /// single-threaded path), which never skips a depth; helpers `> 0` follow the
+    /// skip schedule so the workers search different plies.
+    skip_index: usize,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
     /// The NNUE network, when one is loaded; otherwise the hand-written
@@ -91,8 +105,38 @@ pub struct Searcher<'a> {
     accumulator: Option<Accumulator>,
 }
 
-impl<'a> Searcher<'a> {
-    pub fn new(transposition_table: &'a mut TranspositionTable) -> Searcher<'a> {
+impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
+    pub fn new(transposition_table: &'a Tt) -> Searcher<'a, Tt> {
+        Searcher::with_optional_stop(transposition_table, None)
+    }
+
+    /// A worker for the parallel coordinator: it shares `shared_stop` with its peers
+    /// so they all halt together once one of them reaches the budget.
+    fn new_worker(
+        transposition_table: &'a Tt,
+        shared_stop: &'a AtomicBool,
+        skip_index: usize,
+    ) -> Searcher<'a, Tt> {
+        let mut searcher = Searcher::with_optional_stop(transposition_table, Some(shared_stop));
+        searcher.skip_index = skip_index;
+        searcher
+    }
+
+    /// Whether this worker skips iterative-deepening `depth` (Wave 6 staggering).
+    /// Worker 0, the single-threaded path, and the mandatory first ply never skip,
+    /// so every worker keeps a completed result and `Threads = 1` is bit-identical.
+    fn should_skip(&self, depth: i32) -> bool {
+        if self.skip_index == 0 || depth <= 1 {
+            return false;
+        }
+        let j = (self.skip_index - 1) % SKIP_SIZE.len();
+        ((depth + SKIP_PHASE[j]) / SKIP_SIZE[j]) % 2 == 1
+    }
+
+    fn with_optional_stop(
+        transposition_table: &'a Tt,
+        shared_stop: Option<&'a AtomicBool>,
+    ) -> Searcher<'a, Tt> {
         crate::attacks::warm();
         Searcher {
             transposition_table,
@@ -103,6 +147,8 @@ impl<'a> Searcher<'a> {
             deadline: None,
             node_limit: None,
             stopped: false,
+            shared_stop,
+            skip_index: 0,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
             eval_net: None,
             accumulator: None,
@@ -111,7 +157,7 @@ impl<'a> Searcher<'a> {
 
     /// Evaluate leaf positions with `net` instead of the hand-written
     /// evaluation. `None` keeps the hand-written evaluation. Chains onto `new`.
-    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a> {
+    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a, Tt> {
         self.eval_net = net;
         self
     }
@@ -183,6 +229,9 @@ impl<'a> Searcher<'a> {
         };
 
         for depth in 1..=max_depth {
+            if self.should_skip(depth) {
+                continue; // a helper worker staggers onto other depths (Wave 6)
+            }
             let (best_move, score) = self.negamax(board, depth, -MATE, MATE, 0);
             if self.stopped {
                 break; // discard this incomplete iteration
@@ -247,6 +296,14 @@ impl<'a> Searcher<'a> {
         if self.stopped {
             return true;
         }
+        // A peer worker reached the budget and signalled; stop with them. `None`
+        // single-threaded, so this branch is inert and the path stays bit-identical.
+        if let Some(shared_stop) = self.shared_stop {
+            if shared_stop.load(Ordering::Relaxed) {
+                self.stopped = true;
+                return true;
+            }
+        }
         // The node budget is checked every node (not batched), so even a tiny limit
         // binds exactly; the clock is polled in batches to amortize `Instant::now`.
         if let Some(limit) = self.node_limit {
@@ -259,6 +316,10 @@ impl<'a> Searcher<'a> {
             if let Some(deadline) = self.deadline {
                 if Instant::now() >= deadline {
                     self.stopped = true;
+                    // Signal peer workers so they stop at their next check.
+                    if let Some(shared_stop) = self.shared_stop {
+                        shared_stop.store(true, Ordering::Relaxed);
+                    }
                 }
             }
         }
@@ -456,6 +517,99 @@ impl<'a> Searcher<'a> {
     }
 }
 
+/// Lazy SMP: run `thread_count` independent searches that share one transposition
+/// table and return thread 0's result. Each worker runs the unchanged
+/// iterative-deepening loop on its own cloned `Board` and per-worker state; the
+/// workers share only the table (by `&`), the deadline (each computes the same one
+/// from `limits` and `now`), and a stop flag so they halt together. The reported
+/// `nodes` is the workers' sum (UCI `info nodes`).
+///
+/// The table must be `Sync`, so only `LocklessTranspositionTable` reaches this
+/// path; the single-threaded `ExclusiveTranspositionTable` is `!Sync` and cannot.
+pub fn search_parallel<Tt: TranspositionTable + Sync>(
+    board: &Board,
+    limits: &SearchLimits,
+    now: Instant,
+    transposition_table: &Tt,
+    thread_count: usize,
+    eval_net: Option<&Network>,
+) -> SearchResult {
+    let shared_stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..thread_count.max(1))
+            .map(|index| {
+                let mut worker_board = board.clone();
+                let shared_stop = &shared_stop;
+                scope.spawn(move || {
+                    let mut searcher =
+                        Searcher::new_worker(transposition_table, shared_stop, index)
+                            .with_eval_net(eval_net);
+                    searcher.search(&mut worker_board, limits, now)
+                })
+            })
+            .collect();
+        let results: Vec<SearchResult> = workers
+            .into_iter()
+            .map(|worker| worker.join().expect("a search worker panicked"))
+            .collect();
+        let total_nodes: u64 = results.iter().map(|result| result.nodes).sum();
+        let mut result = vote(results);
+        result.nodes = total_nodes;
+        result
+    })
+}
+
+/// Pick the move the workers most agree on, weighted by each worker's depth and
+/// score, and return the deepest worker proposing it (Stockfish best-thread
+/// voting). A worker reporting a nearer mate carries the higher score, so it
+/// outvotes a deeper non-mate; ties break toward greater depth.
+fn vote(results: Vec<SearchResult>) -> SearchResult {
+    // A forced mate for us is decisive at any depth — prefer the nearest (highest
+    // score). This guards the one case where a shallow worker should win.
+    if let Some(index) = results
+        .iter()
+        .enumerate()
+        .filter(|(_, worker)| worker.score >= MATE_THRESHOLD)
+        .max_by_key(|(_, worker)| worker.score)
+        .map(|(index, _)| index)
+    {
+        return results.into_iter().nth(index).expect("index is valid");
+    }
+
+    // Otherwise only the deepest workers vote: a shallower search must never
+    // override a deeper one (which loses Elo). Among the deepest, the move the
+    // workers most agree on wins, weighted by score; ties break toward depth.
+    let max_depth = results.iter().map(|result| result.depth).max().unwrap_or(0);
+    let min_score = i64::from(
+        results
+            .iter()
+            .filter(|worker| worker.depth == max_depth)
+            .map(|worker| worker.score)
+            .min()
+            .unwrap_or(0),
+    );
+    let mut best_index = 0;
+    let mut best_votes = i64::MIN;
+    for (index, candidate) in results.iter().enumerate() {
+        if candidate.depth != max_depth {
+            continue;
+        }
+        let move_votes: i64 = results
+            .iter()
+            .filter(|worker| worker.depth == max_depth && worker.best_move == candidate.best_move)
+            .map(|worker| i64::from(worker.score) - min_score + 1)
+            .sum();
+        if move_votes > best_votes {
+            best_votes = move_votes;
+            best_index = index;
+        }
+    }
+    results
+        .into_iter()
+        .nth(best_index)
+        .expect("thread_count is at least 1")
+}
+
 pub fn is_mate_score(score: i32) -> bool {
     score.abs() >= MATE_THRESHOLD
 }
@@ -529,16 +683,17 @@ fn compute_budget_ms(side: Color, limits: &SearchLimits) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tt::{ExclusiveTranspositionTable, LocklessTranspositionTable};
 
-    fn searcher_for(fen: &str) -> (Board, TranspositionTable) {
+    fn searcher_for(fen: &str) -> (Board, ExclusiveTranspositionTable) {
         let board = Board::from_fen(fen).unwrap();
-        let table = TranspositionTable::new();
+        let table = ExclusiveTranspositionTable::new();
         (board, table)
     }
 
     fn best(fen: &str, depth: i32) -> String {
-        let (mut board, mut table) = searcher_for(fen);
-        let mut searcher = Searcher::new(&mut table);
+        let (mut board, table) = searcher_for(fen);
+        let mut searcher = Searcher::new(&table);
         searcher
             .best_move(&mut board, depth)
             .expect("a legal move exists")
@@ -546,8 +701,8 @@ mod tests {
     }
 
     fn run_search(fen: &str, limits: SearchLimits) -> SearchResult {
-        let (mut board, mut table) = searcher_for(fen);
-        let mut searcher = Searcher::new(&mut table);
+        let (mut board, table) = searcher_for(fen);
+        let mut searcher = Searcher::new(&table);
         searcher.search(&mut board, &limits, Instant::now())
     }
 
@@ -564,8 +719,8 @@ mod tests {
         let net = crate::nnue::test_network();
         let castling = "r3k2r/pppqbppp/2npbn2/4p3/4P3/2NPBN2/PPPQBPPP/R3K2R w KQkq - 0 1";
         for fen in [STARTPOS, MIDGAME, castling] {
-            let (mut board, mut table) = searcher_for(fen);
-            let mv = Searcher::new(&mut table)
+            let (mut board, table) = searcher_for(fen);
+            let mv = Searcher::new(&table)
                 .with_eval_net(Some(&net))
                 .best_move(&mut board, 4)
                 .expect("a legal move exists");
@@ -826,12 +981,12 @@ mod tests {
     #[test]
     fn a_warm_table_reduces_nodes() {
         fn nodes(fen: &str, depth: i32, warm: bool) -> u64 {
-            let (mut board, mut table) = searcher_for(fen);
+            let (mut board, table) = searcher_for(fen);
             if warm {
-                let mut warmup = Searcher::new(&mut table);
+                let mut warmup = Searcher::new(&table);
                 warmup.best_move(&mut board, depth - 1);
             }
-            let mut searcher = Searcher::new(&mut table);
+            let mut searcher = Searcher::new(&table);
             searcher.best_move(&mut board, depth);
             searcher.nodes
         }
@@ -845,8 +1000,8 @@ mod tests {
     #[test]
     fn killers_and_history_update_on_a_quiet_cutoff() {
         let mut board = Board::from_fen("4k3/8/8/8/8/8/8/R3K3 w - - 0 1").unwrap();
-        let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table);
+        let table = ExclusiveTranspositionTable::new();
+        let mut searcher = Searcher::new(&table);
 
         // AC-3.1: a new Searcher starts empty.
         assert!(searcher.killers.iter().all(|slot| *slot == [None, None]));
@@ -879,8 +1034,8 @@ mod tests {
     fn history_accumulates_across_iterations() {
         // AC-3.2: the table fills as iterative deepening runs.
         let mut board = Board::from_fen(MIDGAME).unwrap();
-        let mut table = TranspositionTable::new();
-        let mut searcher = Searcher::new(&mut table);
+        let table = ExclusiveTranspositionTable::new();
+        let mut searcher = Searcher::new(&table);
         searcher.search(
             &mut board,
             &SearchLimits {
@@ -890,5 +1045,180 @@ mod tests {
             Instant::now(),
         );
         assert!(searcher.history.iter().any(|&score| score > 0));
+    }
+
+    // --- Parallel search Wave 1: the Threads=1 determinism basis (AC-2.2) ---
+
+    /// A node-limited search over a fixed position set. Node counts are pure
+    /// logic (not timing), so the `(best_move, nodes)` pairs are reproducible
+    /// across machines — the basis a `Threads=1` engine must match bit-for-bit.
+    const DETERMINISM_POSITIONS: [&str; 6] = [
+        STARTPOS,
+        MIDGAME,
+        "1r3rk1/p1p3pp/3bp3/1p1P1q2/P3pP2/2B1P2P/1P4Q1/4K1NR b K - 0 1",
+        "1r1qr3/pppbbQ1k/2n1p1p1/2PpP3/3P4/2P2N2/P1B2PP1/1RB1K3 b - - 0 1",
+        "2r3k1/6p1/5p1p/p2r4/3p4/6B1/PPP2PPP/R3R1K1 w - - 0 1",
+        "r5rk/5p1p/5R2/4B3/8/8/7P/7K w",
+    ];
+
+    fn determinism_baseline() -> Vec<(String, u64)> {
+        DETERMINISM_POSITIONS
+            .iter()
+            .map(|fen| {
+                let result = run_search(
+                    fen,
+                    SearchLimits {
+                        max_depth: 64,
+                        node_limit: Some(20_000),
+                        ..Default::default()
+                    },
+                );
+                (
+                    result.best_move.map(|mv| mv.to_uci()).unwrap_or_default(),
+                    result.nodes,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn threads_one_search_is_bit_identical() {
+        // Captured on the single-`&mut TranspositionTable` engine before the
+        // generic-TT refactor. `Searcher<ExclusiveTranspositionTable>`
+        // (Threads=1) must reproduce it.
+        let expected = [
+            ("b1c3", 20_000),
+            ("b1c3", 20_000),
+            ("f8f7", 20_000),
+            ("h7h8", 2_650),
+            ("a1c1", 20_000),
+            ("f6a6", 190),
+        ];
+        let expected: Vec<(String, u64)> = expected
+            .iter()
+            .map(|(mv, nodes)| (mv.to_string(), *nodes))
+            .collect();
+        assert_eq!(determinism_baseline(), expected);
+    }
+
+    // --- Parallel search Wave 3: the Lazy SMP coordinator ---
+
+    fn parallel_depth_four(fen: &str, threads: usize) -> SearchResult {
+        let table = LocklessTranspositionTable::new();
+        let board = Board::from_fen(fen).unwrap();
+        let limits = SearchLimits {
+            max_depth: 4,
+            ..Default::default()
+        };
+        search_parallel(&board, &limits, Instant::now(), &table, threads, None)
+    }
+
+    #[test]
+    fn parallel_search_returns_thread_zero_legal_move() {
+        // AC-1.1, AC-1.2: workers share one table; thread 0's move (and its PV head)
+        // come back, and the move is legal in the root position.
+        let result = parallel_depth_four(MIDGAME, 4);
+        let best = result.best_move.expect("a legal move");
+        let mut board = Board::from_fen(MIDGAME).unwrap();
+        assert!(generate_legal(&mut board).contains(&best));
+        assert_eq!(result.principal_variation.first().copied(), Some(best));
+    }
+
+    #[test]
+    fn parallel_search_stops_within_the_budget() {
+        // AC-1.3: the shared deadline halts every worker and the coordinator returns
+        // a completed iteration's move promptly.
+        let table = LocklessTranspositionTable::new();
+        let board = Board::from_fen(MIDGAME).unwrap();
+        let limits = SearchLimits {
+            max_depth: 64,
+            move_time_ms: Some(200),
+            ..Default::default()
+        };
+        let result = search_parallel(&board, &limits, Instant::now(), &table, 4, None);
+        assert!(result.best_move.is_some());
+        assert!(result.elapsed_ms < 2_000, "elapsed {}", result.elapsed_ms);
+    }
+
+    #[test]
+    fn parallel_search_finds_the_forced_mate() {
+        // Correctness through the shared table: thread 0 still proves the mate.
+        let result = parallel_depth_four("r5rk/5p1p/5R2/4B3/8/8/7P/7K w", 4);
+        assert!(is_mate_score(result.score), "score {}", result.score);
+    }
+
+    #[test]
+    fn parallel_search_sums_worker_nodes() {
+        // AC-5.2: the reported `nodes` is the workers' sum, so four workers report at
+        // least as many nodes as a single-threaded search of the same position.
+        let parallel = parallel_depth_four(MIDGAME, 4);
+        let single = run_search(
+            MIDGAME,
+            SearchLimits {
+                max_depth: 4,
+                ..Default::default()
+            },
+        );
+        assert!(
+            parallel.nodes >= single.nodes,
+            "parallel {} single {}",
+            parallel.nodes,
+            single.nodes
+        );
+    }
+
+    // --- Parallel search Wave 6: depth staggering + thread voting ---
+
+    #[test]
+    fn staggering_keeps_the_main_worker_complete_and_skips_helper_depths() {
+        // AC-7.1–7.2: worker 0 never skips; a helper skips some depths but never the
+        // first ply, so every worker keeps a completed result.
+        let table = ExclusiveTranspositionTable::new();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let main = Searcher::new_worker(&table, &stop, 0);
+        let helper = Searcher::new_worker(&table, &stop, 3);
+        for depth in 1..=12 {
+            assert!(!main.should_skip(depth), "the main worker never skips");
+        }
+        assert!(!helper.should_skip(1), "no worker skips the first ply");
+        assert!(
+            (2..=12).any(|depth| helper.should_skip(depth)),
+            "a helper must skip some depth to diversify"
+        );
+    }
+
+    fn result(best_move: Option<Move>, score: i32, depth: i32) -> SearchResult {
+        SearchResult {
+            best_move,
+            score,
+            depth,
+            nodes: 0,
+            elapsed_ms: 0,
+            principal_variation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn vote_agrees_among_the_deepest_and_ignores_shallow_workers() {
+        // AC-7.3: among the deepest workers (depth 12) the agreed move 10 beats the
+        // lone move 20 at equal score; the shallow worker (depth 8, huge score) must
+        // NOT override a deeper search — the bug that cost -147 Elo.
+        let winner = vote(vec![
+            result(Some(Move(30)), 999, 8),
+            result(Some(Move(10)), 50, 12),
+            result(Some(Move(10)), 50, 12),
+            result(Some(Move(20)), 50, 12),
+        ]);
+        assert_eq!(winner.best_move, Some(Move(10)));
+    }
+
+    #[test]
+    fn vote_prefers_a_nearer_mate_to_a_deeper_non_mate() {
+        // AC-7.4: a worker reporting a forced mate outvotes a deeper non-mate.
+        let winner = vote(vec![
+            result(Some(Move(20)), 600, 20),
+            result(Some(Move(10)), MATE - 5, 8),
+        ]);
+        assert_eq!(winner.best_move, Some(Move(10)));
     }
 }

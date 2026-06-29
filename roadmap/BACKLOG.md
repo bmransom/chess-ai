@@ -12,6 +12,5 @@ then it becomes a card on `roadmap/ROADMAP.md`.
 
 | Idea | Why | Source |
 |---|---|---|
-| Parallel search across cores | The engine runs single-threaded; multi-core search would deepen within the same time budget | README TODO |
 | Manage AWS resources with CDK | The `t2.micro` host is configured by hand; infra-as-code makes it reproducible | README TODO |
 | Reinforcement-learning evaluation | Learn the evaluation function instead of hand-tuning piece-square values | README TODO — partly carded as Epic 5 (NNUE, supervised on self-play); a true RL loop (policy/value + MCTS) stays here |
