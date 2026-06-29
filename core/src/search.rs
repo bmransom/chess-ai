@@ -564,19 +564,43 @@ pub fn search_parallel<Tt: TranspositionTable + Sync>(
 /// voting). A worker reporting a nearer mate carries the higher score, so it
 /// outvotes a deeper non-mate; ties break toward greater depth.
 fn vote(results: Vec<SearchResult>) -> SearchResult {
-    let min_score = i64::from(results.iter().map(|result| result.score).min().unwrap_or(0));
+    // A forced mate for us is decisive at any depth — prefer the nearest (highest
+    // score). This guards the one case where a shallow worker should win.
+    if let Some(index) = results
+        .iter()
+        .enumerate()
+        .filter(|(_, worker)| worker.score >= MATE_THRESHOLD)
+        .max_by_key(|(_, worker)| worker.score)
+        .map(|(index, _)| index)
+    {
+        return results.into_iter().nth(index).expect("index is valid");
+    }
+
+    // Otherwise only the deepest workers vote: a shallower search must never
+    // override a deeper one (which loses Elo). Among the deepest, the move the
+    // workers most agree on wins, weighted by score; ties break toward depth.
+    let max_depth = results.iter().map(|result| result.depth).max().unwrap_or(0);
+    let min_score = i64::from(
+        results
+            .iter()
+            .filter(|worker| worker.depth == max_depth)
+            .map(|worker| worker.score)
+            .min()
+            .unwrap_or(0),
+    );
     let mut best_index = 0;
-    let mut best_key = (i64::MIN, i32::MIN);
+    let mut best_votes = i64::MIN;
     for (index, candidate) in results.iter().enumerate() {
+        if candidate.depth != max_depth {
+            continue;
+        }
         let move_votes: i64 = results
             .iter()
-            .filter(|worker| worker.best_move == candidate.best_move)
-            .map(|worker| {
-                (i64::from(worker.score) - min_score + 1) * i64::from(worker.depth.max(1))
-            })
+            .filter(|worker| worker.depth == max_depth && worker.best_move == candidate.best_move)
+            .map(|worker| i64::from(worker.score) - min_score + 1)
             .sum();
-        if (move_votes, candidate.depth) > best_key {
-            best_key = (move_votes, candidate.depth);
+        if move_votes > best_votes {
+            best_votes = move_votes;
             best_index = index;
         }
     }
@@ -1175,14 +1199,15 @@ mod tests {
     }
 
     #[test]
-    fn vote_picks_the_agreed_move_over_a_lone_deeper_worker() {
-        // AC-7.3: not thread 0, not merely the deepest — depth/score-weighted
-        // agreement. Worker 0 is a lone deeper worker on move 20; three agree on 10.
+    fn vote_agrees_among_the_deepest_and_ignores_shallow_workers() {
+        // AC-7.3: among the deepest workers (depth 12) the agreed move 10 beats the
+        // lone move 20 at equal score; the shallow worker (depth 8, huge score) must
+        // NOT override a deeper search — the bug that cost -147 Elo.
         let winner = vote(vec![
-            result(Some(Move(20)), 40, 14),
+            result(Some(Move(30)), 999, 8),
             result(Some(Move(10)), 50, 12),
             result(Some(Move(10)), 50, 12),
-            result(Some(Move(10)), 50, 11),
+            result(Some(Move(20)), 50, 12),
         ]);
         assert_eq!(winner.best_move, Some(Move(10)));
     }
