@@ -37,11 +37,53 @@ share only:
 
 Thread 0's completed result is returned, with its `nodes` replaced by the workers'
 sum (each worker's count is added up at join — no per-node shared counter, so no
-hot-path contention). Helper threads exist only to deepen the
-shared TT and desync onto other lines (the shared bounds naturally diverge the
-workers' trees). YBWC and root-splitting are rejected: weaving shared alpha,
+hot-path contention). YBWC and root-splitting are rejected: weaving shared alpha,
 root-move arbitration, and cancellation through the serial alpha-beta move loop is
 too much first-step risk for an engine with no concurrency today.
+
+This Wave 1–4 coordinator runs every worker **identically** — the same iterative
+deepening from depth 1 — relying on timing and the shared TT to desync them. Wave
+5.1 measured that at **−17 Elo [−46.3, +11.2]** (Threads=8 vs Threads=1, time
+control): a wash. The workers re-search the same tree, so the shared TT only
+deduplicates redundant work. Search diversity is what converts the node throughput
+into Elo.
+
+## Search diversity — staggered depths and thread voting
+
+Two mechanisms make the workers search *differently*. Both touch only the
+`Threads > 1` path; worker 0 and the single-threaded `Searcher` are unchanged, so
+AC-2.2 bit-identity holds by construction.
+
+### Staggered depths (a skip schedule)
+
+Worker 0 is the **main line**: it searches every depth `1, 2, 3, …` and never skips,
+so a complete result always exists. Each **helper** `i > 0` skips a subset of depths
+on a deterministic pattern keyed on `i`, spreading the helpers across plies — they
+fill the TT with bounds from different depths instead of all racing the same one. We
+adopt Stockfish's `SkipSize`/`SkipPhase` scheme (`search.cpp`): with `j = (i − 1) mod
+20`, worker `i` skips root depth `d` when `((d + SkipPhase[j]) / SkipSize[j])` is
+odd; the two length-20 tables fan the helpers over a range of depth offsets.
+
+Integration: the iterative-deepening loop in `Searcher::search` gains a `skip(depth)`
+predicate (a no-op for `Threads = 1` and worker 0). `search_node` is unchanged.
+
+### Thread voting
+
+Returning worker 0 wastes the helpers' finds. Instead, each worker contributes its
+final `(best_move, depth, score)`, and the coordinator **votes** — with `min_score`
+the minimum score over the workers:
+
+```
+weight(worker)     = (worker.score − min_score + 1) × worker.depth
+votes[best_move]  += weight(worker)        # summed over all workers
+```
+
+The move with the greatest summed vote wins; among the workers proposing it the
+deepest is selected and its principal variation and score are reported (AC-7.3–7.4).
+This rewards a move that several deep, high-scoring workers agree on — Stockfish's
+`Thread::best_thread` rule. Mate scores are the one special case: a worker reporting
+a nearer mate outvotes a deeper non-mate. The vote runs once, at the
+`std::thread::scope` join — no hot-path cost.
 
 ## No strategy pattern — a monomorphized generic
 
@@ -130,6 +172,8 @@ atomic table, so `/transposition_table` snapshot-decodes the slots; it runs at
 | Lazy SMP | Parallel search where each thread runs the full search, sharing one TT | CPW "Lazy SMP" |
 | Lockless transposition table | A shared TT using the key-XOR-data trick to reject torn reads | Robert Hyatt; CPW "Shared Hash Table" |
 | Threads (UCI option) | The worker count, a `spin` resource option | UCI `option`; standard engine convention |
+| Depth staggering | A per-helper depth-skip schedule so the workers search different plies | Stockfish `SkipSize`/`SkipPhase` (`search.cpp`) |
+| Thread voting | Selecting the reported move by a depth-and-score-weighted vote across workers | Stockfish `Thread::best_thread` |
 
 ## Alternatives considered
 
@@ -148,7 +192,9 @@ atomic table, so `/transposition_table` snapshot-decodes the slots; it runs at
 | Risk | Mitigation |
 |---|---|
 | Lockless correctness is subtle | A torn-read rejection test; `AtomicU64` only, no `unsafe`. |
-| Identical workers duplicate effort before TT desync | The speedup is empirical — measure with the time-control SPRT before claiming Elo. |
+| Identical workers duplicate effort before TT desync | Staggered depths + thread voting (Search diversity); measure with the time-control SPRT before claiming Elo. |
+| Diversity gain is empirical and modest | Re-measure vs both Threads=1 and the lockstep baseline; basic Lazy SMP is tens of Elo, not hundreds. |
+| Vote picks a worse move than the deepest worker | Weight by depth and score; prefer shorter mates; a unit test on a constructed worker set. |
 | `go nodes` non-reproducible under threads | A hard single-thread guard in the seam + a test. |
 | GIL held during search serializes workers | `py.allow_threads` around the Rust call (mandatory). |
 | Oversubscription loses Elo | Default 1; clamp to `available_parallelism()`. |

@@ -61,3 +61,16 @@ gain is real and not a fixed-node artifact.
 As the maintainer, I want the existing gate green and the new behavior tested.
 
 - AC-6.1 WHEN `scripts/check-fast.sh` runs, THE SYSTEM SHALL pass perft and the tactical tests at `Threads = 1`, plus a `Threads = 1` `(best_move, node_count)` determinism baseline, `setoption` parsing, the `go nodes` single-thread guard, and a lockless torn-read rejection test.
+
+## Story 7 — Search diversity
+
+As the maintainer, I want the worker threads to search *differently*, so the extra
+nodes find moves the main line misses instead of re-searching the same tree —
+turning parallel node throughput into Elo. (Wave 5.1 measured the lockstep
+coordinator at a wash; this story is its payoff.)
+
+- AC-7.1 WHEN `Threads` is greater than 1, THE SYSTEM SHALL give each helper worker a distinct depth schedule — staggered, skipped iteration depths keyed on the worker index — so the workers do not all search the same depth in lockstep.
+- AC-7.2 WHEN `Threads` is 1, or for worker 0 under `Threads > 1`, THE SYSTEM SHALL search every depth in order with no skipping, preserving the bit-identical single-threaded basis (AC-2.2) and a complete main line.
+- AC-7.3 WHEN the parallel search finishes, THE SYSTEM SHALL choose the returned best move by a vote across workers weighted by each worker's reached depth and score, not by unconditionally taking worker 0.
+- AC-7.4 WHEN a vote selects a worker, THE SYSTEM SHALL report that worker's principal variation and score; a worker reporting a nearer mate SHALL outvote a deeper non-mate.
+- AC-7.5 WHEN measuring, THE SYSTEM SHALL record a time-control SPRT of the diversified `Threads = N` against `Threads = 1`, and the gate SHALL keep the `Threads = 1` determinism baseline green.
