@@ -1,5 +1,5 @@
 {
-  "pluginVersion": "0.1.8",
+  "pluginVersion": "0.1.10",
   "conventionVersion": 3,
   "harnesses": ["claude-code", "codex"],
   "files": {
@@ -46,7 +46,7 @@
     "scripts/worktree-retire.sh": {
       "template": "worktree-retire",
       "version": 1,
-      "sha256": "4b9bf74f34988607172dbb903b9dcce0b9e66e992132f930fb7c4a6b598e0943"
+      "sha256": "94bf1f4d2a1b6a01acb0aab8f3b09e8041eedfcf844484ef8f7910370323f82e"
     }
   }
 }
