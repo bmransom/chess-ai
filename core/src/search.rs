@@ -35,6 +35,11 @@ const MAX_BUDGET_PERCENT: u64 = 40;
 const MAX_SEARCH_PLY: usize = 128;
 /// Clamp history scores to keep them bounded and ordering stable.
 const HISTORY_MAX: i32 = 1 << 24;
+/// Per-helper depth-skip schedule (Stockfish `SkipSize`/`SkipPhase`, `search.cpp`):
+/// helper `i` skips root depth `d` when `((d + SKIP_PHASE[j]) / SKIP_SIZE[j])` is odd,
+/// `j = (i − 1) mod 20`, fanning the workers across plies (Wave 6 search diversity).
+const SKIP_SIZE: [i32; 20] = [1, 1, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4];
+const SKIP_PHASE: [i32; 20] = [0, 1, 0, 1, 2, 0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /// The limits for one search. All times are milliseconds.
 #[derive(Clone, Copy, Default)]
@@ -85,6 +90,10 @@ pub struct Searcher<'a, Tt: TranspositionTable> {
     /// so they halt together when the budget expires. `None` single-threaded, which
     /// keeps `should_stop` — and the whole `Threads = 1` path — bit-identical.
     shared_stop: Option<&'a AtomicBool>,
+    /// Worker index for depth staggering (Wave 6): 0 is the main worker (and the
+    /// single-threaded path), which never skips a depth; helpers `> 0` follow the
+    /// skip schedule so the workers search different plies.
+    skip_index: usize,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
     /// The NNUE network, when one is loaded; otherwise the hand-written
@@ -103,8 +112,25 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
 
     /// A worker for the parallel coordinator: it shares `shared_stop` with its peers
     /// so they all halt together once one of them reaches the budget.
-    fn new_worker(transposition_table: &'a Tt, shared_stop: &'a AtomicBool) -> Searcher<'a, Tt> {
-        Searcher::with_optional_stop(transposition_table, Some(shared_stop))
+    fn new_worker(
+        transposition_table: &'a Tt,
+        shared_stop: &'a AtomicBool,
+        skip_index: usize,
+    ) -> Searcher<'a, Tt> {
+        let mut searcher = Searcher::with_optional_stop(transposition_table, Some(shared_stop));
+        searcher.skip_index = skip_index;
+        searcher
+    }
+
+    /// Whether this worker skips iterative-deepening `depth` (Wave 6 staggering).
+    /// Worker 0, the single-threaded path, and the mandatory first ply never skip,
+    /// so every worker keeps a completed result and `Threads = 1` is bit-identical.
+    fn should_skip(&self, depth: i32) -> bool {
+        if self.skip_index == 0 || depth <= 1 {
+            return false;
+        }
+        let j = (self.skip_index - 1) % SKIP_SIZE.len();
+        ((depth + SKIP_PHASE[j]) / SKIP_SIZE[j]) % 2 == 1
     }
 
     fn with_optional_stop(
@@ -122,6 +148,7 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
             node_limit: None,
             stopped: false,
             shared_stop,
+            skip_index: 0,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
             eval_net: None,
             accumulator: None,
@@ -202,6 +229,9 @@ impl<'a, Tt: TranspositionTable> Searcher<'a, Tt> {
         };
 
         for depth in 1..=max_depth {
+            if self.should_skip(depth) {
+                continue; // a helper worker staggers onto other depths (Wave 6)
+            }
             let (best_move, score) = self.negamax(board, depth, -MATE, MATE, 0);
             if self.stopped {
                 break; // discard this incomplete iteration
@@ -507,12 +537,13 @@ pub fn search_parallel<Tt: TranspositionTable + Sync>(
     let shared_stop = AtomicBool::new(false);
     std::thread::scope(|scope| {
         let workers: Vec<_> = (0..thread_count.max(1))
-            .map(|_| {
+            .map(|index| {
                 let mut worker_board = board.clone();
                 let shared_stop = &shared_stop;
                 scope.spawn(move || {
-                    let mut searcher = Searcher::new_worker(transposition_table, shared_stop)
-                        .with_eval_net(eval_net);
+                    let mut searcher =
+                        Searcher::new_worker(transposition_table, shared_stop, index)
+                            .with_eval_net(eval_net);
                     searcher.search(&mut worker_board, limits, now)
                 })
             })
@@ -522,13 +553,37 @@ pub fn search_parallel<Tt: TranspositionTable + Sync>(
             .map(|worker| worker.join().expect("a search worker panicked"))
             .collect();
         let total_nodes: u64 = results.iter().map(|result| result.nodes).sum();
-        let mut result = results
-            .into_iter()
-            .next()
-            .expect("thread_count is at least 1");
+        let mut result = vote(results);
         result.nodes = total_nodes;
         result
     })
+}
+
+/// Pick the move the workers most agree on, weighted by each worker's depth and
+/// score, and return the deepest worker proposing it (Stockfish best-thread
+/// voting). A worker reporting a nearer mate carries the higher score, so it
+/// outvotes a deeper non-mate; ties break toward greater depth.
+fn vote(results: Vec<SearchResult>) -> SearchResult {
+    let min_score = i64::from(results.iter().map(|result| result.score).min().unwrap_or(0));
+    let mut best_index = 0;
+    let mut best_key = (i64::MIN, i32::MIN);
+    for (index, candidate) in results.iter().enumerate() {
+        let move_votes: i64 = results
+            .iter()
+            .filter(|worker| worker.best_move == candidate.best_move)
+            .map(|worker| {
+                (i64::from(worker.score) - min_score + 1) * i64::from(worker.depth.max(1))
+            })
+            .sum();
+        if (move_votes, candidate.depth) > best_key {
+            best_key = (move_votes, candidate.depth);
+            best_index = index;
+        }
+    }
+    results
+        .into_iter()
+        .nth(best_index)
+        .expect("thread_count is at least 1")
 }
 
 pub fn is_mate_score(score: i32) -> bool {
@@ -1086,5 +1141,59 @@ mod tests {
             parallel.nodes,
             single.nodes
         );
+    }
+
+    // --- Parallel search Wave 6: depth staggering + thread voting ---
+
+    #[test]
+    fn staggering_keeps_the_main_worker_complete_and_skips_helper_depths() {
+        // AC-7.1–7.2: worker 0 never skips; a helper skips some depths but never the
+        // first ply, so every worker keeps a completed result.
+        let table = ExclusiveTranspositionTable::new();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        let main = Searcher::new_worker(&table, &stop, 0);
+        let helper = Searcher::new_worker(&table, &stop, 3);
+        for depth in 1..=12 {
+            assert!(!main.should_skip(depth), "the main worker never skips");
+        }
+        assert!(!helper.should_skip(1), "no worker skips the first ply");
+        assert!(
+            (2..=12).any(|depth| helper.should_skip(depth)),
+            "a helper must skip some depth to diversify"
+        );
+    }
+
+    fn result(best_move: Option<Move>, score: i32, depth: i32) -> SearchResult {
+        SearchResult {
+            best_move,
+            score,
+            depth,
+            nodes: 0,
+            elapsed_ms: 0,
+            principal_variation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn vote_picks_the_agreed_move_over_a_lone_deeper_worker() {
+        // AC-7.3: not thread 0, not merely the deepest — depth/score-weighted
+        // agreement. Worker 0 is a lone deeper worker on move 20; three agree on 10.
+        let winner = vote(vec![
+            result(Some(Move(20)), 40, 14),
+            result(Some(Move(10)), 50, 12),
+            result(Some(Move(10)), 50, 12),
+            result(Some(Move(10)), 50, 11),
+        ]);
+        assert_eq!(winner.best_move, Some(Move(10)));
+    }
+
+    #[test]
+    fn vote_prefers_a_nearer_mate_to_a_deeper_non_mate() {
+        // AC-7.4: a worker reporting a forced mate outvotes a deeper non-mate.
+        let winner = vote(vec![
+            result(Some(Move(20)), 600, 20),
+            result(Some(Move(10)), MATE - 5, 8),
+        ]);
+        assert_eq!(winner.best_move, Some(Move(10)));
     }
 }
