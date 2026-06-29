@@ -4,7 +4,7 @@
 > outplays its hand-tuned baseline by ~115 Elo.
 
 [![CI](https://github.com/bmransom/chess-ai/actions/workflows/check-fast.yml/badge.svg)](https://github.com/bmransom/chess-ai/actions/workflows/check-fast.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](#license)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 brandobot pairs a native **Rust core** (`brandobot_core`, a PyO3 module) that owns
 all chess logic with two thin Python wrappers: a UCI engine over stdin/stdout and a
@@ -93,4 +93,4 @@ vocabulary contract is [`knowledge/glossary.md`](knowledge/glossary.md).
 
 ## License
 
-Released under the **MIT License** (declared in `core/Cargo.toml`).
+Released under the [MIT License](LICENSE).
