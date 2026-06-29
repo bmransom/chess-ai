@@ -23,6 +23,9 @@ target/
 # fetched UHO opening book (large, reproducible via scripts/fetch_uho.py)
 bench/uho_4060_v4.epd
 
+# fetched Stockfish teacher binary (large, reproducible via scripts/fetch_stockfish.py)
+bin/stockfish
+
 # knowledge site (vitepress) — keep knowledge/package-lock.json tracked
 knowledge/node_modules/
 knowledge/.vitepress/cache/
@@ -31,3 +34,11 @@ knowledge/.vitepress/sidebar.generated.json
 
 # measure_terms.sh scratch worktrees
 .measure/
+
+# generated NNUE training data (large, reproducible via scripts/gen_data.py)
+data/
+
+# trained NNUE nets (artifacts, reproducible via scripts/train.py) — but track the
+# shipped net the engine loads by default
+nets/*
+!nets/net.nnue

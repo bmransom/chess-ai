@@ -12,6 +12,7 @@ use crate::movesort::{
     get_moves_to_dequiet, history_index, in_check, prioritize_legal_moves, OrderingContext,
     HISTORY_SIZE,
 };
+use crate::nnue::{Accumulator, Network};
 use crate::tt::{Flag, HashEntry, TranspositionTable};
 use crate::types::Color;
 
@@ -81,6 +82,13 @@ pub struct Searcher<'a> {
     stopped: bool,
     /// Triangular table: `pv_table[ply]` is the principal variation from `ply`.
     pv_table: Vec<Vec<Move>>,
+    /// The NNUE network, when one is loaded; otherwise the hand-written
+    /// evaluation is used. Selected once per search via [`Searcher::with_eval_net`].
+    eval_net: Option<&'a Network>,
+    /// The maintained NNUE accumulator for the current position — initialized at
+    /// the search root when a net is loaded, then advanced and restored around
+    /// each make/unmake so leaf evaluation needs no full refresh.
+    accumulator: Option<Accumulator>,
 }
 
 impl<'a> Searcher<'a> {
@@ -96,6 +104,55 @@ impl<'a> Searcher<'a> {
             node_limit: None,
             stopped: false,
             pv_table: vec![Vec::new(); MAX_SEARCH_PLY],
+            eval_net: None,
+            accumulator: None,
+        }
+    }
+
+    /// Evaluate leaf positions with `net` instead of the hand-written
+    /// evaluation. `None` keeps the hand-written evaluation. Chains onto `new`.
+    pub fn with_eval_net(mut self, net: Option<&'a Network>) -> Searcher<'a> {
+        self.eval_net = net;
+        self
+    }
+
+    /// The white-positive static evaluation: the NNUE network when one is
+    /// loaded, else the hand-written evaluation. Both share the sign convention,
+    /// so the search seam is identical for either.
+    fn evaluate(&self, board: &Board) -> i32 {
+        match self.eval_net {
+            Some(net) => match &self.accumulator {
+                Some(accumulator) => {
+                    let score = net.evaluate_accumulator(accumulator, board.side_to_move());
+                    debug_assert_eq!(
+                        score,
+                        net.evaluate(board),
+                        "incremental accumulator diverged from a full refresh"
+                    );
+                    score
+                }
+                None => net.evaluate(board),
+            },
+            None => eval::evaluate(board),
+        }
+    }
+
+    /// Advance the maintained accumulator for `mv` — `board` is the position
+    /// *before* the move — and return the prior accumulator to restore after
+    /// unmake. A no-op returning `None` when no net is loaded or no search
+    /// initialized one (e.g. the decision-tree scout), where evaluation falls back
+    /// to a full refresh.
+    fn advance_accumulator(&mut self, board: &Board, mv: Move) -> Option<Accumulator> {
+        let net = self.eval_net?;
+        let mut next = self.accumulator.as_ref()?.clone();
+        net.apply_move(&mut next, board, mv);
+        self.accumulator.replace(next)
+    }
+
+    /// Restore the accumulator saved by [`Searcher::advance_accumulator`].
+    fn restore_accumulator(&mut self, saved: Option<Accumulator>) {
+        if saved.is_some() {
+            self.accumulator = saved;
         }
     }
 
@@ -110,6 +167,7 @@ impl<'a> Searcher<'a> {
         self.deadline = compute_budget_ms(board.side_to_move(), limits)
             .map(|budget| now + Duration::from_millis(budget));
         self.node_limit = limits.node_limit;
+        self.accumulator = self.eval_net.map(|net| net.fresh_accumulator(board));
         let max_depth = limits.max_depth.max(1) as i32;
 
         // Fallback so we always return a legal move, even if depth 1 is cut off.
@@ -148,6 +206,7 @@ impl<'a> Searcher<'a> {
     /// The best move searched to a fixed `depth`, no time limit. Used by the HTTP
     /// path and the tactical tests.
     pub fn best_move(&mut self, board: &mut Board, depth: i32) -> Option<Move> {
+        self.accumulator = self.eval_net.map(|net| net.fresh_accumulator(board));
         let (best, _score) = self.negamax(board, depth, -MATE, MATE, 0);
         if best.is_some() {
             return best;
@@ -272,7 +331,7 @@ impl<'a> Searcher<'a> {
             } else {
                 -1
             };
-            let stand_pat = eval::evaluate(board) * perspective;
+            let stand_pat = self.evaluate(board) * perspective;
             if !is_in_check {
                 if stand_pat >= beta {
                     return (None, beta);
@@ -297,9 +356,11 @@ impl<'a> Searcher<'a> {
         let mut best_score = -MATE;
         let mut best_move: Option<Move> = None;
         for mv in moves {
+            let saved = self.advance_accumulator(board, mv);
             let undo = board.make_move(mv);
             let (_, child_score) = self.negamax(board, depth - 1, -beta, -alpha, ply + 1);
             board.unmake_move(mv, undo);
+            self.restore_accumulator(saved);
             if self.stopped {
                 return (None, 0);
             }
@@ -493,6 +554,28 @@ mod tests {
     const STARTPOS: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
     const MIDGAME: &str = "r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 1";
     const MATE_IN_ONE: &str = "6k1/5ppp/8/8/8/8/5PPP/R5K1 w - - 0 1";
+
+    #[test]
+    fn search_with_a_net_keeps_the_accumulator_consistent() {
+        // With a net loaded the incrementally-maintained accumulator must track a
+        // full refresh at every evaluated node — a debug_assert in `evaluate`
+        // enforces it under debug builds — and the search must still return a
+        // legal move. The castling position exercises the rook deltas in-tree.
+        let net = crate::nnue::test_network();
+        let castling = "r3k2r/pppqbppp/2npbn2/4p3/4P3/2NPBN2/PPPQBPPP/R3K2R w KQkq - 0 1";
+        for fen in [STARTPOS, MIDGAME, castling] {
+            let (mut board, mut table) = searcher_for(fen);
+            let mv = Searcher::new(&mut table)
+                .with_eval_net(Some(&net))
+                .best_move(&mut board, 4)
+                .expect("a legal move exists");
+            assert!(
+                generate_legal(&mut board).contains(&mv),
+                "search returned an illegal move {} for {fen}",
+                mv.to_uci()
+            );
+        }
+    }
 
     // --- Wave 6: tactics preserved ---
 

@@ -3,7 +3,7 @@ title: Roadmap
 description: The tracked kanban board — the single source of truth for cross-spec status.
 ---
 
-<!-- foundry-seed: roadmap v1 -->
+<!-- foundry-seed: roadmap v2 -->
 
 # Roadmap
 
@@ -14,6 +14,9 @@ Run `scripts/board.sh` to render the board; `scripts/board.sh "Epic 0"` filters 
 - A **card** is one table row: `Work | Status | Spec | Depends on`. Claim a card by
   adding `(@<owner>)` to its Work cell; never take a card another agent owns.
   Respect the Depends-on column.
+- An **In progress** card names where its work lives: the branch, and the absolute
+  worktree path when the work sits in a separate or out-of-repo worktree. A harness that
+  resumes the card reads this to find existing work instead of guessing.
 - A card's **status** is its column: `Backlog → Ready → In progress → Validating →
   Done` (+ `Superseded`, terminal). `Blocked` and the owner are flags, not columns.
 - The dashboard groups cards by **epic**; the epic order is the priority order.
@@ -120,3 +123,24 @@ engine's speed, so per-term retention stays unverified.
 | King safety (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
 | Pawn structure (@branransom) | Done | [evaluation](specs/evaluation/design.md) | Tapered foundation (PeSTO) + retire `is_endgame`, Fair-match harness + acceptance rule |
 | Docs + cumulative measurement (@branransom) | Done | [measurement](specs/evaluation/fair-match-measurement.md) | Mobility, King safety, Pawn structure |
+
+### Epic 5 — NNUE evaluation
+
+Add a learned static evaluation inside the existing alpha-beta search: borrow the
+simplest viable modern architecture — a 768 perspective network
+(`(768 → 256)×2 → 1`), trained on PyTorch (MPS) over self-play positions
+labeled by a teacher engine (Stockfish eval — knowledge distillation),
+integer-quantized, and updated incrementally on make/unmake. The net stays ours;
+only the training label is borrowed, which rating lists accept. The new path sits
+behind a flag; PeSTO stays as the fallback and the SPRT baseline. Supervised
+distillation, not AlphaZero MCTS — the classical search is unchanged. The net
+ships only on a fair-match SPRT pass over PeSTO. Teacher-labeling throughput, not
+integration, is the dominant cost.
+
+| Work | Status | Spec | Depends on |
+|---|---|---|---|
+| Borrow the architecture — net format, loader, full-refresh inference, flagged drop-in (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Evaluation, Iterative deepening |
+| Training pipeline — Lichess eval data (HF parquet) → compact numpy, PyTorch/MPS train + export to .nnue (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture, Self-play match (Elo) |
+| Incremental accumulator — make/unmake deltas, refresh == incremental, node rate (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Borrow the architecture |
+| Measure strength — SPRT vs the PeSTO build: net #3 +115 Elo [+91, +141], accept-H1 (@bmransom, `feat/nnue-eval`) | Done | [nnue-eval](specs/nnue-eval/design.md) | Training pipeline, Incremental accumulator, Fair-match harness + acceptance rule |
+| Docs + glossary + board | Planned | [nnue-eval](specs/nnue-eval/design.md) | Measure strength |

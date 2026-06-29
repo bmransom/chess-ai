@@ -1,0 +1,262 @@
+---
+title: NNUE evaluation — design
+description: A borrowed 768 perspective NNUE — trained on teacher-labeled self-play, integer-quantized, incrementally updated on make/unmake, behind a flag, measured by SPRT.
+---
+
+> **Status:** Planned (2026-06-26) — tracked on the [board](../../ROADMAP.md).
+
+# NNUE evaluation — design
+
+## Decision summary
+
+| Decision | Choice | Why |
+|---|---|---|
+| Approach | Borrow an architecture; supervised regression by distillation | Drops into the existing alpha-beta search; not AlphaZero's MCTS self-play, which would replace the search paradigm. |
+| Feature set | 768 (piece type × color × square), perspective | The simplest viable modern net; no king buckets, so a king move needs no accumulator refresh. |
+| Topology | `(768 → 256)×2 → 1`, squared clipped-ReLU (SCReLU) | bullet's canonical first net; one hidden width to tune later. |
+| Trainer | PyTorch on MPS | The training host is an Apple Silicon Mac (Metal, no CUDA); PyTorch's MPS backend trains on the GPU. We own the `.nnue` format, so a small trainer (`scripts/train.py`) exports to it directly — no bullet build, no bulletformat. |
+| Training data | The Lichess eval database (388M Stockfish-scored positions); self-play was the first cut | Distillation from a teacher's evals. Self-play (net #1, 1.16M) was too small and lost; the public Lichess dump supplies 100M+ diverse, deeply-evaluated positions — the volume the net actually needs. See the Outcome. |
+| Quantization | `QA = 255`, `QB = 64`, `SCALE = 400`, int16 accumulator | bullet's defaults; integer math keeps make/unmake exact and fast. |
+| Sign | White-positive, drop-in at the eval call | Keeps `search.rs:275` (`* perspective`) unchanged. |
+| Rollout | Behind a flag; PeSTO stays as fallback and baseline | Isolates "is the net good?" and lets SPRT compare flag-off vs flag-on. |
+| Verification | refresh == incremental, then fair-match SPRT | A correctness invariant for the fast path, then a strength gate. |
+
+## The borrowed architecture
+
+A **perspective network** over the **768** feature set. A feature is a
+`(piece type, color, square)` triple — 6 × 2 × 64 = 768 binary inputs, of which
+exactly the occupied squares (≤ 32) are active.
+
+```mermaid
+flowchart LR
+  B[Board bitboards] --> FE[768 feature extractor]
+  FE --> AS[stm accumulator: 256]
+  FE --> AN[nstm accumulator: 256]
+  AS --> R1[SCReLU clamp 0..QA]
+  AN --> R2[SCReLU clamp 0..QA]
+  R1 --> C[concat: 512]
+  R2 --> C
+  C --> O[output neuron]
+  O --> D["dequantize: SCALE / (QA·QB)"]
+  D --> W[white-positive cp · mate-clamped]
+  W --> S["search seam (search.rs:275) · × perspective"]
+```
+
+Two accumulators share one feature transformer (the 768×256 first layer). The
+side-to-move accumulator is built from features indexed in the mover's
+orientation; the not-to-move accumulator from the mirrored orientation. Swapping
+colors and the side to move swaps the two accumulators, so the output negates —
+this is the structural antisymmetry of AC-1.5, independent of training.
+
+**Why 768 over HalfKP.** HalfKP indexes every feature by the friendly king
+square (≈ 40,960 inputs), so a king move invalidates that side's whole
+accumulator and forces a refresh. The 768 set has no king index: every move is a
+pure feature delta, which is the cleanest fit for brandobot's existing atomic
+make/unmake. HalfKP is a later upgrade, not the first net.
+
+## Inference and quantization
+
+The accumulator stores int16 sums. Evaluation reads the two accumulators, applies
+SCReLU (`x → clamp(x, 0, QA)²`), dots with the output weights (int32
+accumulation), then dequantizes:
+
+```
+eval_cp = (output_int32 * SCALE) / (QA * QB)     // White-positive centipawns
+```
+
+`QA = 255`, `QB = 64`, `SCALE = 400` are bullet's defaults; the loader (AC-1.4)
+checks them against the file header. These constants are a contract between the
+trainer's export and the engine's inference — they live in one place and must
+match on both sides.
+
+## Integration map
+
+New module `core/src/nnue.rs` owns the network, the accumulator pair, `refresh`,
+and `evaluate`. The touch points in the existing core:
+
+| Seam | Where | Change |
+|---|---|---|
+| Eval call | `search.rs:275` | `eval::evaluate(board)` → `self.eval_fn(board)`; NNUE returns White-positive, so `* perspective` is unchanged. |
+| Feature read | `board.rs:216` `pieces()` | The extractor iterates the 12 piece bitboards with `pop_lsb()` to active feature indices. |
+| Incremental update | `nnue.rs` `apply_move` + the search's make/unmake | `apply_move` derives the feature deltas from the move and the pre-move board (capture, en passant, promotion, castling), so `board.rs` stays unchanged and perft pays nothing; the search maintains the accumulator across make/unmake and pops it on undo. |
+| Weight load | `lib.rs:305` `#[pymodule]` | New `Searcher.load_nnue(path)` and an eval-selection flag; the core has no file I/O today, so this is genuinely new surface. |
+
+The PeSTO `eval::evaluate` stays. The flag selects the function pointer; with the
+flag off the engine is byte-for-byte today's engine (AC-4.1).
+
+## Perspective convention
+
+The net is side-to-move relative by construction, but `nnue::evaluate` returns a
+**White-positive** score — compute the stm-relative output, then negate when
+Black is to move. This makes it a drop-in for `eval::evaluate` at the single call
+site, where the searcher already applies `* perspective`. Minimal blast radius;
+the same reason the chess-inator tutorial kept a White-centric eval.
+
+## Training pipeline
+
+Distillation: brandobot plays the games for position diversity, but a strong
+**teacher** supplies the labels. brandobot's own search scores are too weak to be
+a useful target until it is already strong — the teacher breaks that chicken-and-egg.
+
+1. **Generate.** Play self-play games with `selfplay.py` (from varied book
+   openings) for position diversity; record positions and the game result.
+2. **Filter.** Drop non-quiet positions — in check or with a pending capture
+   (AC-2.2) — so the regression target matches a static evaluation.
+3. **Label.** Score each kept position with the teacher engine (Stockfish, fixed
+   depth or node budget); write `<fen> | <cp> | <wdl>` records, carrying both the
+   teacher's centipawns and the game's WDL so the trainer blends them by its lambda.
+4. **Train + export.** `scripts/train.py` trains the `(768 → 256)×2 → 1` net on
+   MPS (the target is `λ·sigmoid(cp/SCALE) + (1−λ)·wdl`, side-to-move relative),
+   quantizes to `QA`/`QB`/`SCALE`, and writes the BNN1 `.nnue` file `nnue.rs`
+   loads — no intermediate trainer format. Its feature indexing and forward pass
+   mirror `nnue.rs` exactly, verified after export: the engine's integer eval
+   matches the float model within quantization error (`nnue_evaluate`).
+
+**The teacher is new tooling.** A provisioning step fetches the Stockfish binary
+(analogous to `fetch_uho.py` for the opening book), and a labeling step drives it
+over UCI. The teacher's identity, version, and per-position budget are recorded
+with the dataset (AC-2.3) so a net is reproducible. We ship our own net; only the
+*labels* are distilled — this is how Stockfish trained its own first NNUE, and is
+the line rating lists accept (a borrowed net would make brandobot a clone).
+
+**Data volume still matters, but quality is no longer the bottleneck.** Teacher
+labels make a given position budget far more effective than weak self-play scores;
+the wave records the position count and the teacher budget. The dominant risk
+shifts from label quality to label *throughput* — Stockfish at depth over millions
+of positions is the slow step.
+
+## Metrics
+
+| Metric | What it tells us | How measured |
+|---|---|---|
+| Elo vs PeSTO | Whether the net is worth shipping — the decisive gate | Fair-match SPRT, `sprt.py` (flag-on vs flag-off) |
+| Training loss | Whether the net is learning the teacher's evaluation | the trainer's per-epoch loss curve |
+| Node rate (nps) | Whether the eval stays fast enough to be worth it | self-play / `measure_nps`, NNUE vs PeSTO |
+| refresh == incremental | Correctness of the fast accumulator path | equivalence test over a self-play game (AC-3.3) |
+
+The Elo gate is decisive: the net ships only on an SPRT pass over PeSTO. The others
+are guardrails — a net that trains well but loses nps or fails the equivalence test
+is not shipped.
+
+## Verification
+
+- **Loader:** a mismatched header or dimension is rejected (AC-1.4); a round-trip
+  of a known net loads to the expected weights.
+- **Antisymmetry:** a color-mirrored, side-swapped position negates (AC-1.5);
+  this holds for a randomly-initialized net, so it gates Wave 1 before any
+  trained net exists.
+- **refresh == incremental:** for every position in a self-play game, the
+  incrementally-updated accumulator equals a full refresh (AC-3.3). This is the
+  correctness invariant for the fast path — a sign or index bug in a delta breaks
+  it. Integration test driving `Board` make/unmake, no mocks.
+- **Tactics:** the forced puzzles still resolve under NNUE; a changed quiet move
+  is recorded (AC-4.3).
+- **Node rate:** the incremental path's nps is recorded against full-refresh; the
+  search must stay fast enough to be worth the stronger eval.
+- **Strength:** a fair-match SPRT with `sprt.py` compares the NNUE build against
+  the PeSTO build (AC-5.1). Ship only on a pass.
+
+## Naming and provenance
+
+| Term | Definition | Provenance |
+|---|---|---|
+| NNUE | An efficiently updatable, quantized neural-network evaluation read inside alpha-beta | CPW "NNUE"; Nasu (shogi); Stockfish |
+| Accumulator | The running first-layer pre-activation, updated incrementally per move | CPW "NNUE"; Stockfish |
+| Feature transformer | The first layer mapping active input features to the accumulator | CPW "NNUE"; Stockfish |
+| 768 feature set | An input feature per `(piece type, color, square)`, perspective-relative | bullet; CPW "NNUE" |
+| Perspective network | Paired side-to-move / not-to-move accumulators concatenated before the output | bullet |
+| Squared clipped-ReLU | The activation clamping an accumulator to `[0, QA]` then squaring | bullet; CPW "NNUE" |
+| bullet | The trainer whose 768-net architecture and integer-quantization conventions this net follows | `jw1912/bullet` |
+| MPS | Apple's Metal Performance Shaders — PyTorch's GPU backend, the training host's accelerator | PyTorch `torch.backends.mps` |
+| Teacher | The strong engine whose evaluation labels the training positions | Stockfish; CPW "NNUE" |
+| Knowledge distillation | Training a net to predict a stronger engine's evaluation | CPW "NNUE"; Stockfish |
+
+These are chess-engine-evaluation terms (the NNUE subdomain), within the neutral
+engine's vocabulary; each names its prior art per the glossary contract.
+
+## Alternatives considered
+
+- **HalfKP / HalfKAv2 (Stockfish's sets).** Deferred: king-indexed, so a king
+  move forces an accumulator refresh — more code for a first net. Revisit once the
+  768 net proves the pipeline.
+- **Roll our own architecture.** Rejected: the point is to borrow a proven one;
+  novelty belongs in the data and tuning, not the topology.
+- **AlphaZero-style RL self-play (policy/value net + MCTS).** Rejected: replaces
+  the alpha-beta search wholesale and needs orders more compute. NNUE keeps the
+  classical search and only swaps the leaf evaluation.
+- **Pure self-play labels (brandobot's own search scores).** Deferred: a weak,
+  data-hungry first net that loses to PeSTO until the data is huge. The right
+  iteration *after* a teacher-distilled net is strong enough that its own games
+  carry signal — a later epic, not the first net.
+- **Warm-start from a public 768 net.** Rejected for the first net: shipping
+  another engine's weights makes brandobot a derivative/clone (rating-list and GPL
+  problems) for little gain. Distilling a teacher into *our* weights is the clean
+  alternative.
+- **Borrow a Stockfish net directly.** Rejected: its HalfKAv2_hm architecture does
+  not fit our 768 net, and it would be a clone regardless.
+- **bullet (Rust) as the trainer.** Deferred: bullet's edge is CUDA, but the
+  training host is an Apple Silicon Mac — bullet has no Metal backend, so it would
+  run CPU-only, plus a git clone, a build, and a bulletformat writer. PyTorch's MPS
+  backend trains on the Mac's GPU and we export to our own `.nnue` format directly.
+  bullet stays the better choice on a CUDA host; we borrow only its architecture and
+  quantization conventions.
+
+## Risks
+
+| Risk | Mitigation |
+|---|---|
+| Too little data → net loses to PeSTO | Teacher labels lift per-position signal; scale games; record the count; ship only on an SPRT pass. |
+| Teacher labeling is the slow step | Fixed shallow depth/node budget per position; parallelize; record the budget so a net is reproducible. |
+| Teacher version drift changes labels | Pin and record the teacher identity and version with the dataset (AC-2.3). |
+| Incremental delta has a sign/index bug | The refresh == incremental equivalence test (AC-3.3) gates the fast path. |
+| Quantization overflow or scale mismatch | int32 dot accumulation; the loader checks `QA`/`QB`/`SCALE` against the header. |
+| NNUE slows the node rate below break-even | Incremental accumulator + SIMD-friendly layout; nps recorded; SPRT is wall-clock fair. |
+| Trainer/export drift from inference | The quantization constants are one shared contract, asserted on load. |
+
+## Outcome
+
+The net that beat PeSTO was trained on the **Lichess eval database**, not self-play —
+the dominant lever was data *volume*. The shipped pipeline:
+
+```
+fetch_lichess_evals.py / build_dataset.py   # HuggingFace parquet shards → compact
+   (388M positions, HF CDN)                 #   numpy: per position the 768 feature
+                                            #   indices, white-positive cp, side to move
+train.py  (PyTorch MPS)                     # on-GPU batched scatter; cosine LR decay;
+                                            #   quantize → BNN1 .nnue (verified ≤9 cp)
+sprt.py   (--net vs PeSTO)                  # fair-match measurement
+```
+
+Three nets, same `(768 → 256)×2 → 1` architecture, told the story:
+
+| Net | Positions | Elo vs PeSTO |
+|---|---|---|
+| #1 self-play, no LR decay | 1.16M | −85 |
+| #2 Lichess, no LR decay | 5M | −92 |
+| #3 **Lichess + cosine LR decay** | **100M** | **+132.9 [+92.3, +177.4]** |
+
+The lesson matches the literature (Leorik trains the *identical* 768→256 net on 622M
+positions): below a few million positions a from-scratch net loses to a tuned eval;
+the same architecture at 100M wins decisively. The cosine LR schedule was a secondary
+win. The incremental accumulator kept the cost gate green throughout (≈0.4% slower).
+`nets/net.nnue` is the shipped net; `assets/elo-vs-data.png` plots the three points.
+
+### Controlled data-size sweep
+
+A clean Elo-vs-data curve (same pipeline, only the position count varies — random
+subsets via `train.py --limit`, each SPRT'd 60 pairs vs PeSTO by `curve.py`):
+
+| Positions | Elo vs PeSTO |
+|---|---|
+| 5M | −12 [−58, +34] |
+| 20M | +92 [+38, +150] |
+| 50M | +134 [+84, +190] |
+| 100M | +108 [+53, +168] |
+| 300M | +154 [+106, +208] |
+
+Steep rise to ~50M, then a noisy plateau ~+120–155 (50/100/300M overlap within the
+60-pair CIs). Two lessons sharper than the first three-net read: (1) with the cosine
+LR schedule even **5M is ≈ even** with PeSTO (net #2 without the schedule was −92, so
+the schedule alone was worth ~90 Elo); (2) returns flatten by ~50M for this 768→256
+net — 300M trains right at the 64 GB unified-memory wall (it swaps), the point where
+real trainers stream batches from disk. See `assets/elo-vs-data-controlled.png`.

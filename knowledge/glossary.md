@@ -82,6 +82,17 @@ field, and record must fit. The chess logic lives in the Rust core
 | Census | The point-estimate Elo and confidence interval from the played pairs, with a finite-population correction to the full book | `census_estimate` | |
 | Node limit | A fixed node budget per search, for deterministic equal-effort play | `go nodes`, `SearchLimits.node_limit` | |
 | UHO opening book | An unbalanced-human-openings book that raises the decisive rate | `fetch_uho.py` | |
+| NNUE | An efficiently updatable, quantized neural-network evaluation read inside alpha-beta | `nnue` | |
+| Accumulator | The running first-layer pre-activation, updated incrementally per move | `Accumulator` | |
+| Feature transformer | The first layer mapping active input features to the accumulator | `nnue` | |
+| 768 feature set | An input feature per `(piece type, color, square)`, perspective-relative | `nnue` | |
+| Perspective network | Paired side-to-move / not-to-move accumulators concatenated before the output | `nnue` | |
+| Squared clipped-ReLU | The activation clamping an accumulator to `[0, QA]` then squaring | `nnue` | |
+| BNN1 | The brandobot NNUE network file format — a little-endian header (magic, dimensions, quantization scales) then the quantized feature transformer and output layer | `b"BNN1"` | |
+| bullet | The trainer whose 768-net architecture and integer-quantization conventions this net follows | `jw1912/bullet` | |
+| MPS | Apple's Metal Performance Shaders — PyTorch's GPU backend, used to train the net | `train.py` | |
+| Teacher | The strong engine whose evaluation labels the training positions | Stockfish | |
+| Knowledge distillation | Training a net to predict a stronger engine's evaluation | `nnue` | |
 
 Bitboard, magic bitboard, make/unmake, piece-square table, tapered evaluation,
 game phase, PeSTO, king safety, mobility, the doubled/isolated/passed pawn terms,
@@ -94,4 +105,15 @@ already did. The time-control tokens are UCI;
 PyO3 module name. SPRT follows Wald 1945 and Fishtest; the pentanomial GSPRT
 follows Michel Van den Bergh / Fishtest `LLRcalc`; the node limit follows UCI
 `go nodes` and Stockfish `LimitsType`; the UHO opening book is
-`official-stockfish/books` (CC0).
+`official-stockfish/books` (CC0). NNUE, the accumulator, and the feature
+transformer follow [Chess Programming Wiki](https://www.chessprogramming.org/NNUE)
+and Stockfish conventions (NNUE originates with Yu Nasu in shogi); the 768 feature
+set, the perspective network, and the squared clipped-ReLU follow the
+[`jw1912/bullet`](https://github.com/jw1912/bullet) trainer's conventions and
+CPW's NNUE article — Stockfish itself uses the larger HalfKAv2_hm set. We borrow
+bullet's conventions but not bullet: the net is trained by `train.py` on PyTorch's
+MPS backend (the Apple Silicon GPU), since bullet has no Metal backend. The teacher
+and knowledge distillation follow Stockfish's own NNUE bootstrap (the net learns a
+stronger engine's evaluations). The `BNN1` file format is coined here — brandobot
+network, format 1 — since brandobot owns the trainer-to-engine contract; its magic
+and layout live in `nnue.rs` (`from_bytes`) and `train.py` (`export`).
