@@ -6,6 +6,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/maturin develop --release -m core/Cargo.toml   # build the Rust core into the venv
 scripts/check-fast.sh            # canonical gate: cargo fmt/clippy/test + maturin + ruff + pytest + knowledge
 .venv/bin/python src/main.py     # run the UCI engine (type: uci, isready, go, quit)
+.venv/bin/python src/main.py --net nets/net.nnue   # UCI engine with the NNUE eval
 .venv/bin/python src/api.py      # run the Flask HTTP API
 .venv/bin/python src/perft.py    # move-generation benchmark
 .venv/bin/python scripts/epd_suite.py --movetime 100 bench/wac.epd  # tactical solve-rate
@@ -15,61 +16,59 @@ scripts/check-fast.sh            # canonical gate: cargo fmt/clippy/test + matur
 scripts/board.sh                 # render the kanban board from roadmap/ROADMAP.md
 ```
 
-Pre-push runs the same gate: run `scripts/install-hooks.sh` once per clone;
-bypass once with `git push --no-verify`.
+Pre-push runs the same gate: run `scripts/install-hooks.sh` once per clone; bypass
+once with `git push --no-verify`.
+
+## Done
+
+Done is a recorded gate PASS — `scripts/check-fast.sh` green. Never claim it from a
+partial run, or mark a board card `Done` without one.
 
 ## Boundaries
 
 **Never**
-- Introduce vocabulary from outside the chess and game-tree-search domain. This
-  is a neutral engine; `knowledge/glossary.md` is the contract.
+- Commit secrets — the lichess-bot token, API keys.
+- `git add -A`; stage explicit paths.
+- Introduce vocabulary from outside the chess / game-tree-search domain;
+  `knowledge/glossary.md` is the contract.
 
 **Always**
-- Use the `knowledge/glossary.md` vocabulary in records, APIs, and concepts — it
-  is the domain language.
-- Before coining a canonical name (glossary term, public type or field, config
-  knob), search the prior art and record provenance in the glossary.
-- Stage explicit paths, never `git add -A`.
+- Use the `knowledge/glossary.md` vocabulary in records, APIs, and concepts.
+- Before coining a canonical name (glossary term, public type or field, config knob),
+  search the prior art and record provenance in the glossary.
 
 **Ask first**
 - Push to remote. Branch first if on the default branch.
 
-## Writing style
-
-Omit needless words; use the active voice; make
-definite assertions. Lead with the point; one idea per sentence; concrete
-commands, paths, and names; say it once and link to depth. Prefer a table, list,
-or code block when denser than a sentence.
-
 ## Testing
 
-- Run the gate's tests: `.venv/bin/python -m pytest -q`.
-- Scope to one file: `.venv/bin/python -m pytest src/tests/next_move.py -q`, or
-  run a unittest file directly: `.venv/bin/python src/tests/next_move.py`.
-- Integration over mocks: unit tests drive `Board`/`Searcher`; the acceptance
-  Scenario drives the real UCI engine via subprocess. No mocks.
+- Gate tests `.venv/bin/python -m pytest -q`; one file
+  `.venv/bin/python -m pytest src/tests/next_move.py -q`.
+- Integration over mocks: unit tests drive `Board`/`Searcher`; the acceptance Scenario
+  drives the real UCI engine via subprocess.
 - New feature → add a Scenario; enhancement → update it; refactor → leave it.
 
 ## Contracts
 
-The engine exposes two contracts:
-- **UCI command set** over stdin/stdout: `uci`, `isready`, `ucinewgame`,
-  `position`, `go`, `quit`.
-- **HTTP JSON API**: `POST /next_move` `{fen}` → `{move}`; `GET
-  /transposition_table`; `GET /decision_tree`.
+Two contracts, each exercised through its entrypoint in a Scenario:
+- **UCI** over stdin/stdout: `uci`, `isready`, `ucinewgame`, `position`, `go`, `quit`.
+- **HTTP JSON**: `POST /next_move {fen}` → `{move}`; `GET /transposition_table`;
+  `GET /decision_tree`.
 
-Write the schema first; derive types from it — never parallel hand-written
-types. Validate at every boundary (parse, don't trust); model request and
-response with pydantic. Feature Scenarios exercise each contract through its
-production entrypoint.
+Write the schema first and derive types from it. Validate at every boundary (parse,
+don't trust); model request and response with pydantic.
+
+## Writing style
+
+Omit needless words; use the active voice; make definite assertions. Lead with the
+point; one idea per sentence; concrete commands, paths, and names; say it once and link
+to depth. Prefer a table, list, or code block when denser than a sentence.
 
 ## Task tracking
 
-`roadmap/ROADMAP.md` is the board; claim a card by owner; `Done` requires a
-recorded gate PASS. Specs live in `roadmap/specs/<feature>/`; ideas in
-`roadmap/BACKLOG.md`.
+`roadmap/ROADMAP.md` is the board; claim a card by owner. Specs live in
+`roadmap/specs/<feature>/`; ideas in `roadmap/BACKLOG.md`.
 
 ## Deeper docs
 
 `knowledge/README.md` indexes everything · glossary · validation · specs.
-
