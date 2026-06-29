@@ -13,20 +13,31 @@
 # Promote durable notes to the TRACKED tree first (roadmap/ROADMAP.md, roadmap/specs/,
 # roadmap/BACKLOG.md), commit, then retire. `--force` deletes anyway.
 #
-# Usage: scripts/worktree-retire.sh <worktree-path> [--force]
+# `--delete-branch` also deletes the worktree's branch after removal — `git
+# branch -d` (merge-safe; refuses an unmerged branch), or `git branch -D` under
+# `--force`. Run it from within the owning repo. Branch deletion runs only after
+# note-protection and worktree removal succeed.
+#
+# Usage: scripts/worktree-retire.sh <worktree-path> [--force] [--delete-branch]
 set -euo pipefail
 
 force=0
+delete_branch=0
 wt=""
 for arg in "$@"; do
   case "$arg" in
     --force) force=1 ;;
+    --delete-branch) delete_branch=1 ;;
     -*) echo "worktree-retire: unknown flag $arg" >&2; exit 2 ;;
     *) wt="$arg" ;;
   esac
 done
-[ -n "$wt" ] || { echo "usage: scripts/worktree-retire.sh <worktree-path> [--force]" >&2; exit 2; }
+[ -n "$wt" ] || { echo "usage: scripts/worktree-retire.sh <worktree-path> [--force] [--delete-branch]" >&2; exit 2; }
 [ -d "$wt" ] || { echo "worktree-retire: not a directory: $wt" >&2; exit 2; }
+
+# Record the branch before removal so we can delete it afterward.
+branch=""
+[ "$delete_branch" -eq 1 ] && branch="$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 
 # Durable-note patterns we refuse to drop on the floor.
 note_re='(^|/)(.*followup|.*handoff|.*scratch|.*notes|TODO)'
@@ -53,4 +64,14 @@ else
   git worktree remove "$wt"
 fi
 git worktree prune
+
+if [ "$delete_branch" -eq 1 ] && [ -n "$branch" ]; then
+  if [ "$force" -eq 1 ]; then
+    echo "worktree-retire: deleting branch $branch (--force)"
+    git branch -D "$branch"
+  else
+    echo "worktree-retire: deleting branch $branch"
+    git branch -d "$branch"
+  fi
+fi
 echo "worktree-retire: done."
