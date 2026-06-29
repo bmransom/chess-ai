@@ -88,6 +88,7 @@ field, and record must fit. The chess logic lives in the Rust core
 | 768 feature set | An input feature per `(piece type, color, square)`, perspective-relative | `nnue` | |
 | Perspective network | Paired side-to-move / not-to-move accumulators concatenated before the output | `nnue` | |
 | Squared clipped-ReLU | The activation clamping an accumulator to `[0, QA]` then squaring | `nnue` | |
+| BNN1 | The brandobot NNUE network file format — a little-endian header (magic, dimensions, quantization scales) then the quantized feature transformer and output layer | `b"BNN1"` | |
 | bullet | The trainer whose 768-net architecture and integer-quantization conventions this net follows | `jw1912/bullet` | |
 | MPS | Apple's Metal Performance Shaders — PyTorch's GPU backend, used to train the net | `train.py` | |
 | Teacher | The strong engine whose evaluation labels the training positions | Stockfish | |
@@ -113,4 +114,6 @@ CPW's NNUE article — Stockfish itself uses the larger HalfKAv2_hm set. We borr
 bullet's conventions but not bullet: the net is trained by `train.py` on PyTorch's
 MPS backend (the Apple Silicon GPU), since bullet has no Metal backend. The teacher
 and knowledge distillation follow Stockfish's own NNUE bootstrap (the net learns a
-stronger engine's evaluations).
+stronger engine's evaluations). The `BNN1` file format is coined here — brandobot
+network, format 1 — since brandobot owns the trainer-to-engine contract; its magic
+and layout live in `nnue.rs` (`from_bytes`) and `train.py` (`export`).

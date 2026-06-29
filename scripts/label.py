@@ -7,8 +7,8 @@ target is meaningful (the network reads no search).
 
 Scores are white-positive centipawns, matching the engine's own evaluation and the
 NNUE module, with mate scores capped to a finite bound (the NNUE `EVAL_LIMIT`).
-This module is the labeling primitive; the self-play generation and the
-bulletformat writer build on it (nnue-eval spec, task 2.2).
+This module is the labeling primitive; the self-play generation (`gen_data.py`)
+builds on it to write plain `<fen> | <cp> | <wdl>` records (nnue-eval spec, task 2.2).
 """
 
 import sys

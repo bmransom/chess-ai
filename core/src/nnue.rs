@@ -13,8 +13,9 @@
 //!
 //! The accumulator supports incremental update — `add_piece` / `remove_piece`
 //! adjust both perspectives by a single weight column, so make/unmake need no full
-//! recompute. Wiring those deltas into the search's make/unmake is the next step;
-//! `evaluate` currently builds a fresh accumulator each call.
+//! recompute. The search maintains it across make/unmake via `apply_move`;
+//! `evaluate` reads the maintained accumulator, falling back to a full refresh
+//! where none is initialized (the decision-tree scout and the flag-off engine).
 
 use crate::board::Board;
 use crate::chess_move::Move;
